@@ -1,0 +1,401 @@
+## Distribution of all score across voting methods
+```{r scores-agross-methods, echo=FALSE, warning=FALSE, cache=TRUE}
+legend_title <- "input method"
+mypal <- pal_npg("nrc", alpha = 1)(9)
+
+
+df_va_stts_lng %>%  
+  mutate(vote_mechanism = recode_factor(vote_mechanism, 
+                                        " Majority Voting" = "mv", 
+                                        " Combined Approval" = "cav", 
+                                        " Score Voting" = "sv",
+                                        " Modified Borda Count" = "mbc"), ordered=TRUE) %>%
+ggplot(., aes(x=factor(score), fill = vote_mechanism)) +
+  geom_bar(position = position_dodge2(preserve = "single"))+
+  xlab("score")+
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        text=element_text(size=12)) +
+  scale_color_manual(legend_title,values=color_blind_friendly)+
+  scale_fill_manual(legend_title,values=color_blind_friendly)->plt_temp
+ggexport(plt_temp, filename = "figures/distribution_score.pdf", width = 8, height = 4)
+```
+
+## Calculating Condorcet winner
+```{r condorcet-winner, echo=FALSE, warning=FALSE, cache=TRUE}
+vote_condorcet <- function(name_vm, df_long) {
+  df_vm<-df_long[df_long$vote_mechanism==name_vm, ] %>%
+    pivot_wider(names_from = option, values_from = score) 
+  con<-condorcet(df_vm[,6:10], runoff = TRUE, quiet=TRUE)
+  w<-con[["elected"]]
+  l<-con[["loser"]]
+  vector_res<-c(name_vm,w,l)
+  return(vector_res)
+}
+
+calculate_con<-function(q){
+  
+  df_va_stts_lng_q<-df_va_stts_lng[df_va_stts_lng$question==q,]
+  covid_ca<-vote_condorcet(" Combined Approval", 
+                           df_va_stts_lng_q%>%mutate(score=recode(score,`-1`="1",`0`="2",`1`="3")))
+  covid_mv<-vote_condorcet(" Majority Voting", df_va_stts_lng_q)
+  covid_mbc<-vote_condorcet(" Modified Borda Count", df_va_stts_lng_q)
+  covid_sv<-vote_condorcet(" Score Voting", df_va_stts_lng_q)
+  
+  df_vt_cndrct<-as.data.frame(rbind(covid_ca,covid_mv,covid_mbc,covid_sv))
+  rownames(df_vt_cndrct)<-df_vt_cndrct$V1
+  df_vt_cndrct<-df_vt_cndrct[,-1]
+  colnames(df_vt_cndrct)<-c("winner", "loser")
+  return(df_vt_cndrct)
+}
+
+Q1<-calculate_con("Q1")
+#Q1%>% 
+#  mutate(winner=recode(winner,
+#                       "o1"="side-effects",
+#                       "o2"="misuse",
+#                       "o3"="discrimination",
+#                       "o4"="timely vacc",
+#                       "o5"="vacc effectiveness")) ->Q1
+
+Q2<-calculate_con("Q2")
+#Q2%>% 
+#  mutate(winner=recode(winner,
+#                       "o1"="vacc denial",
+#                       "o2"="violate lockdown",
+#                       "o3"="health self-damage",
+#                       "o4"="oldest",
+#                       "o5"="youngest"))->Q2
+
+Q3<-calculate_con("Q3")
+#Q3%>% mutate(winner=recode(winner,
+#                       "o1"="hand washing",
+#                       "o2"="mask",
+#                       "o3"="healthy lifestyle",
+#                       "o4"="vaccination",
+#                       "o5"="distancing")) ->Q3
+
+Q4<-calculate_con("Q4")
+#Q4%>% mutate(winner=recode(winner,
+#                       "o1"="distress",
+#                       "o2"="suppression",
+#                       "o3"="inequality",
+#                       "o4"="recession",
+#                       "o5"="reduced health"))->Q4
+
+winner_condorcet<-cbind(Q1[,1],Q2[,1],Q3[,1],Q4[,1])
+rownames(winner_condorcet)<-rownames(winner)
+colnames(winner_condorcet)<-colnames(winner)
+
+knitr::kable(
+  winner_condorcet, 
+  booktabs = TRUE,
+  caption = 'Condorcet winner by voting method.')
+
+mismatch<-table(comparison<-winner == winner_condorcet)[1]/(sum(table(comparison<-winner == winner_condorcet)))
+```
+
+```{r write_table, echo=FALSE, results='hide'}
+stargazer::stargazer(winner_condorcet,
+                     title="Winning options as determined by the Condorcet method, separated by input format (rows) and question (columns). Protection experiences the least amount of change (two different winning options), whereas vaccine, icu, and lockdown experience three different options as winners", 
+                     summary = FALSE,
+               #      font.size = "tiny",
+               #      column.sep.width = "-10pt",
+                     label = "tab:winner_condorcet",
+                     out="tables/winner_condorcet.tex")
+```
+
+
+## Winners in the color context
+```{r wnnr-clr-tab, echo=FALSE, warning=FALSE, cache=TRUE}
+## Coding: (1=yellow, 2=black, 3=green, 4=blue,5=red) 
+winner_mv <-df[,c(9,58)] %>% drop_na() %>% count(practice_m1)%>%
+  filter(n == max(n)) 
+colnames(winner_mv)[1]<-"option"
+
+winner_ca <-df[,c(9,63:67)] %>% drop_na() %>% 
+     mutate_at(c("practice_m2_1","practice_m2_2","practice_m2_3","practice_m2_4","practice_m2_5"), 
+               funs(recode(.,`disapprove (-1)`=-1,`neutral (0)`=0, `approve (1)`=1, .default = NaN)))%>% 
+  gather(option, value, -c(ResponseId)) %>%  
+  group_by(option) %>% 
+  summarise(value = sum(as.numeric(value))) %>%
+  filter(value == max(value)) %>% 
+  mutate(option = recode(option, practice_m2_1 = "yellow"))
+
+winner_sv <-df[,c(9,72:76)] %>% drop_na()%>% 
+  gather(option, value, -c(ResponseId)) %>%  
+  group_by(option)%>% 
+  summarise(value = sum(as.numeric(value)))%>%
+  filter(value == max(value)) %>% 
+  mutate(option = recode(option, practice_m3_4 = "blue"))
+
+winner_mbc <-df[,c(9,86:90)] %>% drop_na()%>% 
+  gather(option, value, -c(ResponseId)) %>%  
+  group_by(option)%>% 
+  summarise(value = sum(as.numeric(value))) %>%
+  filter(value == max(value))%>% 
+  mutate(option = recode(option, practice_m4.2_8 = "red"))
+
+winner<-as.data.frame(rbind(winner_mv[,1],
+      winner_ca[,1],
+      winner_sv[,1],
+      winner_mbc[,1]))
+rownames(winner)<-c("mv","cav","sv","mbc")
+
+knitr::kable(
+  t(winner), 
+  booktabs = TRUE,
+  caption = 'The winning color depends on the voting method.'
+)
+
+stargazer::stargazer(t(winner),
+                     title="Winning options, identified by the highest total score, for each input format.", 
+                     summary = FALSE,
+             #        font.size = "tiny",
+              #       column.sep.width = "-10pt",
+                     label = "tab:winner_color",
+                     out="tables/winner_color.tex")
+```
+
+Table \@ref(tab:wnnr-clr-tab) lists the winners by voting method. It shows that blue wins under most voting methods; However under combined approval yellow wins, and under the mbc, red wins. 
+
+
+
+
+
+## sd and d: normality and symmetry
+```{r normality-sd, echo=FALSE, warning=FALSE, cache=TRUE}
+df_va_stts_lng %>%
+  filter(!vote_mechanism==" Majority Voting") %>%
+  mutate(question=recode(question,
+                         "Q1"="vaccine",
+                         "Q2"="icu",
+                         "Q3"="protection",
+                         "Q4"="lockdown")) %>% 
+  group_by(short_id, vote_mechanism, question) %>%
+  mutate(score_scld=scales::rescale(score,to=c(0, 1))) %>% 
+  summarize(sd=sd(score_scld), .groups = "drop_last")  %>% ungroup ->df_temp
+
+df_temp %>%
+  group_by(question) %>%
+  shapiro_test(sd) %>% 
+  mutate(p=format(p, digits=3)) %>% 
+  select(!variable)%>%
+  mutate(statistic=format(statistic,digits=3))->df_temp2
+stargazer::stargazer(df_temp2 ,
+                     summary = FALSE,
+                     rownames = FALSE,
+                     title = "Shapiro-Wilk test for normality of the standard deviation of the votes.",
+                     label = "tab:shapiro_sd",
+                     out = "tables/shapiro_sd.tex", 
+                     digits = 3)
+
+gghistogram(df_temp, x = "sd", y = "..density..", 
+            color = "#E64B35FF", 
+            fill = "#E64B35FF", 
+            bins = 100, add_density = TRUE)->plt_temp
+#ggexport(plt_temp, filename = "figures/wilcox_sd.pdf", height = 5)
+```
+
+```{r normality-divisiveness, echo=FALSE, warning=FALSE, cache=TRUE}
+df_divisiveness %>% 
+  ungroup %>% 
+  shapiro_test(divisiveness) %>% 
+  mutate(p=format(p, digits=3)) %>% 
+  mutate(statistic=format(statistic, digits=3)) -> df_temp
+
+stargazer::stargazer(df_temp,
+                     summary = FALSE,
+                     rownames = FALSE,
+                     title = "Shapiro-Wilk test for normality of divisiveness of the voting results.",
+                     label = "tab:shapiro_div",
+                     out = "tables/shapiro_div.tex",
+                     digits = 3)
+
+gghistogram(df_divisiveness, x = "divisiveness", y = "..density..", 
+            color = "#E64B35FF", 
+            fill = "#E64B35FF", 
+            bins = 100, add_density = TRUE)->plt_temp2
+
+#ggarrange(plt_temp, plt_temp2) %>%
+#ggexport(filename = "figures/wilcox_sd_d.pdf", width = 8, height = 4)
+```
+
+
+## Legitimacy normality
+https://www.datanovia.com/en/lessons/anova-in-r/#assumptions
+
+```{r legitimacy-normality}
+# normality can not be assumed!
+model  <- lm(rating_cvd ~ which_method, data = df_lng_cvd)
+ggqqplot(residuals(model))
+shapiro_test(residuals(model)) 
+
+tbl_temp<- df_lng_cvd %>%
+  group_by(which_method) %>%
+  shapiro_test(rating_cvd) %>%
+    select(!variable) %>%
+    mutate(p=formatC(p, format = "e", digits = 2)) %>%
+  mutate(statistic=round(statistic, digits = 2)) %>%
+  mutate(which_method=as.character(which_method))
+stargazer::stargazer(tbl_temp,
+                     title="Shapiro-Wilk test for assessing the normality of the legitimacy ratings across different input methods.",
+                     summary = FALSE, rownames = FALSE, 
+                     label = "tab:legitimacy_normality",
+                     out="tables/legitimacy_normality.tex")
+```
+
+## Checking Wilcox Assumptions
+The Wilcoxon signed-rank test assumes that the data are distributed symmetrically around the median. This can be checked by visual inspection using histogram and density distribution.
+```{r lgtmcy-wlcx-assmptns, echo=FALSE, cache=TRUE, warning=FALSE, fig.cap="Testing assumptions for the wilcoxon ranksum test", out.width = '45%'}
+g1<-gghistogram(right_join(df_lng_clr, df_lng_cvd, by=c("short_id", "which_method")), 
+            x = "rating_clr", 
+            y = "..density..", 
+            fill = "steelblue",bins = 5, add = "median",
+            add_density = TRUE)
+g2<-gghistogram(right_join(df_lng_clr, df_lng_cvd, by=c("short_id", "which_method")), 
+            x = "rating_cvd", 
+            y = "..density..", 
+            fill = "steelblue",bins = 5, add = "median",
+            add_density = TRUE)
+ggarrange(g1, g2,  common.legend = TRUE, legend = "bottom")
+# data is not distributed symmetrically around the median --> wilcoxon test should not be used
+```
+
+## Mean and median for legitimacy
+
+### across context
+```{r mean-median-legitimacy-context, cache=TRUE}
+df_lng_cvd %>%
+  group_by(which_method) %>%
+  mutate(mean=mean(rating_cvd)) %>%
+  mutate(median=median(rating_cvd)) %>%
+  distinct(mean, .keep_all = TRUE) %>%
+  select(which_method, mean, median) %>%
+  arrange(mean)->mu_cvd
+
+df_lng_clr %>%
+  group_by(which_method) %>%
+  mutate(mean=mean(rating_clr)) %>%
+  mutate(median=median(rating_clr))  %>% 
+  distinct(mean, .keep_all = TRUE) %>%
+  select(which_method, mean, median) %>%
+  arrange(mean)->mu_clr
+
+
+cbind(mu_cvd,mu_clr[,2:3]) %>% mutate_if(is.numeric, ~round(., 3)) -> tbl_mean
+tbl_mean<-as.data.frame(tbl_mean)
+colnames(tbl_mean)<-c("methods", "mean covid", "median covid", "mean color", "median color")
+
+stargazer::stargazer(tbl_mean,
+                     title="Mean and median legitimacy ratings by context and input method.", 
+                     summary = FALSE,
+                     rownames = FALSE,
+                     label = "tab:mu_eta_cvd_clr",
+                     out="tables/mu_eta_cvd_clr.tex")
+```
+
+```{r mean-median-legitimacy-consistent, cache=TRUE}
+df_lng_cvd %>%
+  mutate(consistent = ifelse(short_id %in% consistent_id, "consistent", "inconsistent")) %>%
+  group_by(which_method, consistent) %>%
+  mutate(mean=mean(rating_cvd)) %>%
+  mutate(median=median(rating_cvd)) %>%
+  distinct(mean, .keep_all = TRUE) %>%
+  select(which_method, consistent, mean, median) %>%
+  arrange(mean) %>% 
+  pivot_wider(names_from = "consistent", values_from = c(mean, median)) %>% 
+  mutate_if(is.numeric, ~round(., 2)) -> mu_median_consistent
+
+mu_median_consistent<-as.data.frame(mu_median_consistent)
+colnames(mu_median_consistent)<-c("methods", "mean consistent", "mean inconsistent", "median consistent", "median inconsistent")
+
+stargazer::stargazer(mu_median_consistent,
+                     title="Mean and median legitimacy ratings by consistent and inconsistent voters.", 
+                     summary = FALSE,
+                     rownames = FALSE,
+                     label = "tab:mu_eta_consistent",
+                     out="tables/mu_eta_consistent.tex")
+```
+
+
+## Manipulation check
+```{r manipulation2, echo=FALSE, cache=TRUE}
+  df %>%
+  select(belief_open) %>%
+  mutate(belief_open = tolower(belief_open)) %>%
+  filter(str_detect(belief_open, "adj", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "no expec", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "no", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "didn't", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "my personal", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "my opinion", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "my true", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "my individual", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "my beliefs", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "honest", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "sense", negate = TRUE)) %>%
+  filter(str_detect(belief_open, "i see", negate = TRUE)) %>%
+  pull(belief_open)-> answers
+
+
+stargazer::stargazer(as.data.frame(answers),
+                     title="The open-ended response to the question regarding whether the participant voted strategically. Only answers that did not contain keywords indicating negation are displayed.", 
+                     summary = FALSE,
+                     rownames = TRUE,
+                     label = "tab:strategic",
+                     out="tables/strategic.tex")
+```
+
+## Divisiveness
+```{r divisive, echo=FALSE, cache=TRUE,warning=FALSE, fig.cap="Divisivess (scaled within method) by question. Jitter represents divisiveness scores by option-pair."}
+df_divisiveness %>%
+  ungroup() %>%
+  mutate(question=recode_factor(question,
+                       "Q1"="vaccine",
+                       "Q2"="icu",
+                       "Q3"="protection",
+                       "Q4"="lockdown"), ordered=TRUE) %>%
+  ggplot(., aes(x=question, y=divisiveness)) +
+  geom_boxplot() +
+  stat_summary(fun=mean, geom="point", shape=20, size=5, color="#DC3220", fill="#DC3220") +
+  geom_jitter(color="grey", size=0.2, alpha=0.3) +
+  facet_wrap(~method) +
+  ylab("divisiveness") +xlab("")+
+  theme_classic() + 
+  theme(legend.position = "bottom",
+      text=element_text(size=12))->plt_temp
+ggexport(plt_temp, filename = "figures/divisiveness.pdf", width = 8, height = 4)
+```
+
+## Duration
+```{r duration, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap="Duration by question and voting method"}
+legend_title <- ""
+df_va_analytics %>%  
+  mutate(vote_mechanism = recode_factor(vote_mechanism, 
+                                      " Majority Voting" = "mv", 
+                                      " Combined Approval" = "cav", 
+                                      " Score Voting" = "sv",
+                                      " Modified Borda Count" = "mbc"), ordered=TRUE) %>%
+  ggboxplot(., 
+          x = "vote_name", 
+          y = "duration", 
+          color = "vote_mechanism", 
+          add = "jitter") +
+  rotate_x_text(angle = 45)+
+  ylim(0, 100) +
+  geom_hline(yintercept = mean(df_va_analytics$duration), linetype = 2)+     # Add global annova p-value
+  stat_compare_means(label = "p.signif", 
+                     method = "wilcox.test",
+                     ref.group = ".all.")    +
+  theme(legend.position = "bottom",
+      text=element_text(size=12))+
+    scale_color_manual(legend_title,values=color_blind_friendly)+
+    scale_fill_manual(legend_title,values=color_blind_friendly) #->plt_temp
+ggexport(plt_temp, filename = "figures/duration.pdf", height = 4, width = 8)
+
+# Pairwise comparison against all
+
+# TODO instead of a plot, i would want to show a ttest what is the mean duration over V1:V16 and which V deviates significantly from that
+```
+

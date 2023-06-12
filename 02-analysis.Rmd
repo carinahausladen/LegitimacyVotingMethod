@@ -1,0 +1,1450 @@
+# Setup
+```{r setup_vote, include=FALSE}
+rm(list=ls())
+
+library(bookdown)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(tidyr)
+library(gapminder)
+library(xtable)
+library(stringr)
+library(pander)
+library(vote)
+library(knitr)
+library(scales)
+library(RColorBrewer)
+library(ordinal)
+library(coin)
+library(dtwclust)
+library(doParallel)
+library(RColorBrewer)
+library(ggpubr)
+library(viridis)
+library(rstatix)
+library(kableExtra)
+library(hrbrthemes)
+library(viridis)
+library(ggpmisc)
+library(forcats)
+library(kSamples)
+library(dagitty)
+library(lavaan)
+library(MESS)
+library(ggExtra)
+library(ggsci)
+library(scales)
+
+#https://davidmathlogic.com/colorblind/#%23005AB5-%23DC3220
+color_blind_friendly <- c("#FFB000", "#D35FB7", "#005AB5", "#DC3220", "#009E73")
+color_blind_friendly2 <- c("#648FFF", "#DC267F","#785EF0","#FE6100", "#FFB000")
+
+df_va_analytics<-rbind(read.csv("../experiment/data/0723/analytics.csv"),
+                       read.csv("../experiment/data/0726/analytics.csv"),
+                       read.csv("../experiment/data/0728/analytics.csv"),
+                       read.csv("../experiment/data/0729/analytics.csv"))
+df_va_stts<-rbind(read.csv("../experiment/data/0723/states.csv"),
+                    read.csv("../experiment/data/0726/states.csv"),
+                    read.csv("../experiment/data/0728/states.csv"),
+                    read.csv("../experiment/data/0729/states.csv"))
+
+
+incomplete<-c("12518", "71672", "92828", "84527", "71795", "43263") ## remove participants with incomplete data
+df_va_stts<-df_va_stts[!df_va_stts$short_id %in% incomplete,]
+```
+
+```{r add_Q, include=FALSE}
+df_va_analytics$question<-ifelse(df_va_analytics$vote_name==" Vote 01"|df_va_analytics$vote_name==" Vote 02"|df_va_analytics$vote_name==" Vote 03"|df_va_analytics$vote_name==" Vote 04", "Q1",
+                                 ifelse(df_va_analytics$vote_name==" Vote 05"|df_va_analytics$vote_name==" Vote 06"|df_va_analytics$vote_name==" Vote 07"|df_va_analytics$vote_name==" Vote 08", "Q2",
+                                        ifelse(df_va_analytics$vote_name==" Vote 09"|df_va_analytics$vote_name==" Vote 10"|df_va_analytics$vote_name==" Vote 11"|df_va_analytics$vote_name==" Vote 12", "Q3",
+                                               ifelse(df_va_analytics$vote_name==" Vote 13"|df_va_analytics$vote_name==" Vote 14"|df_va_analytics$vote_name==" Vote 15"|df_va_analytics$vote_name==" Vote 16", "Q4",
+                                                      "undefined"))))
+df_va_analytics$vote_name<-str_replace(df_va_analytics$vote_name, " Vote ", "V")
+```
+
+```{r read_qltrcs, include=FALSE, warning=FALSE, cache=TRUE}
+df <- read_csv("../experiment/data/qualtrics_text.csv")
+df <- df[-c(1,2),]
+df<-df%>%
+  filter(Finished=="True") %>%
+  filter(!short_id %in% unique(df%>%  #8 people took part twice due to an error in recruiting
+                         group_by(short_id)%>%
+                         filter(n()>1)%>% 
+                         pull(short_id)))%>%
+  filter(!short_id %in% incomplete) 
+#%>%   write.csv(.,file = "df_qualtrics.csv")
+```
+
+```{r descriptives, include=FALSE, cache=TRUE}
+mean_age<-round(mean(as.numeric(df$age), na.rm = TRUE), digits = 2)
+share_female<-table(df$gender)[1]/sum(table(df$gender))
+
+df_education<-as.data.frame(table(df$education))
+share_bachelor<-round((as.numeric(df_education[df_education$Var1=="Bachelor", 2]))/sum(df_education$Freq), digits = 2)
+```
+`r dim(df)[1]` participants took part in the experiment. Their mean age was `r mean_age`, coming from `r  length(table(df$country))` different countries. The highest level of education obtained by the majority of participants is a Bachelor's degree (share: `r share_bachelor`).
+
+
+## Winners
+```{r winner-table, echo=FALSE, warning=FALSE, cache=TRUE}
+df_va_stts %>% #we have several rows to capture states by second!
+  group_by(short_id, vote_name) %>% 
+  slice_max(order_by = time, n = 2) %>% 
+  filter(row_number(vote_mechanism) == 1) -> df_va_stts 
+
+df_va_stts$state<-ifelse(df_va_stts$state==" [0]", "[1; 0; 0; 0; 0]",ifelse(df_va_stts$state==" [1]", "[0; 1; 0; 0; 0]",ifelse(df_va_stts$state==" [2]", "[0; 0; 1; 0; 0]",ifelse(df_va_stts$state==" [3]", "[0; 0; 0; 1; 0]",ifelse(df_va_stts$state==" [4]", "[0; 0; 0; 0; 1]",df_va_stts$state)))))
+
+df_va_stts$state<-gsub("\\[|\\]", "", df_va_stts$state) #remove [ ]
+df_va_stts <- df_va_stts %>% separate(state, c("o1","o2","o3","o4","o5"), ";") 
+df_va_stts$vote_name<-str_replace(str_trim(df_va_stts$vote_name), "Vote ", "V")
+
+df_va_stts$question<-ifelse(df_va_stts$vote_name=="V01"|df_va_stts$vote_name=="V02"|df_va_stts$vote_name=="V03"|df_va_stts$vote_name=="V04", "Q1",ifelse(df_va_stts$vote_name=="V05"|df_va_stts$vote_name=="V06"|df_va_stts$vote_name=="V07"|df_va_stts$vote_name=="V08", "Q2",ifelse(df_va_stts$vote_name=="V09"|df_va_stts$vote_name=="V10"|df_va_stts$vote_name=="V11"|df_va_stts$vote_name=="V12", "Q3","Q4")))
+
+df_va_stts[,2:6]<-as.data.frame(sapply(df_va_stts[,2:6], as.numeric))
+
+
+df_va_stts_lng <- gather(df_va_stts, option, score, o1:o5, factor_key=TRUE) 
+df_va_stts_lng$short_id<-as.factor(df_va_stts_lng$short_id)
+df_va_stts_lng$score<-as.numeric(df_va_stts_lng$score)
+```
+
+```{r winner-table2, echo=FALSE, warning=FALSE, cache=TRUE}
+winner_mv <-df_va_stts_lng %>%
+  filter(vote_mechanism == " Majority Voting")%>% 
+  group_by(vote_mechanism, question, option) %>% 
+  summarise(sum = sum(score),.groups="drop_last") 
+winner_mv_max<- winner_mv%>%
+  group_by(vote_mechanism, question) %>%
+  filter(sum == max(sum)) 
+
+winner_ca <-df_va_stts_lng %>%
+  filter(vote_mechanism == " Combined Approval")%>% 
+  group_by(vote_mechanism, question, option) %>% 
+  summarise(sum = sum(score),.groups="drop_last") 
+winner_ca_max <-winner_ca%>%
+  group_by(vote_mechanism, question) %>%
+  filter(sum == max(sum)) 
+
+winner_sv<- df_va_stts_lng %>%
+  filter(vote_mechanism == " Score Voting")%>% 
+  group_by(vote_mechanism, question, option) %>% 
+  summarise(sum = sum(score),.groups="drop_last") 
+winner_sv_max<-winner_sv%>%
+  group_by(vote_mechanism, question) %>%
+  filter(sum == max(sum))
+
+winner_mbc <- df_va_stts_lng %>%
+  filter(vote_mechanism == " Modified Borda Count")%>% 
+  group_by(vote_mechanism, question, option) %>% 
+  summarise(sum = sum(score),.groups="drop_last") 
+winner_mbc_max <-winner_mbc%>%
+  group_by(vote_mechanism, question) %>%
+  filter(sum == max(sum))
+
+winner<-rbind(t(winner_mv_max[,3]),
+     t(winner_ca_max[,3]),
+      t(winner_sv_max[,3]),
+      t(winner_mbc_max[,3]))
+rownames(winner)<-c("mv","cav","sv","mbc")
+colnames(winner)<-c("vaccine","icu","protection","lockdown")
+
+winner_temp<-as.data.frame(winner) %>% 
+  mutate(`vaccine`=recode(`vaccine`,
+                      "o1"="side-effects",
+                       "o2"="misuse",
+                       "o3"="discrimination",
+                       "o4"="timely vacc",
+                       "o5"="vaccine effectiveness")) %>%
+  mutate(`icu`=recode(`icu`,
+                       "o1"="vacc denial",
+                       "o2"="violate lockdown",
+                       "o3"="health self-damage",
+                       "o4"="oldest",
+                       "o5"="youngest")) %>%
+  mutate(`protection`=recode(`protection`,
+                       "o1"="hand washing",
+                       "o2"="mask",
+                       "o3"="healthy lifestyle",
+                       "o4"="vaccination",
+                       "o5"="distancing")) %>%
+  mutate(`lockdown`=recode(`lockdown`,
+                       "o1"="distress",
+                       "o2"="suppression",
+                       "o3"="inequality",
+                       "o4"="recession",
+                       "o5"="reduced health"))
+
+#kable(winner)%>%
+#  kable_styling(full_width = F)
+```
+
+```{r write_table, echo=FALSE, results='hide'}
+stargazer::stargazer(winner,
+                     title="Winning options of COVID-19-related questions using different voting methods. This table presents the results of four COVID-related questions (columns) that were voted upon using four different voting methods (rows): majority voting ($mv=\{0,1\}$), combined approval voting ($cav=\{-1, 0, 1\}$), score voting ($sv=\{0,1,2,3,4\}$), and modified Borda count ($mbc=\{0,1,2,3,4\}$). The winning option out of $\{o_1,...,o_5\}$ was determined by the highest sum of scores.", 
+                     summary = FALSE,
+                     label = "tab:winner",
+                     out="tables/winner_all.tex")
+```
+
+## Measures of spread by question
+
+### Standard Deviation
+
+```{r sd-prep,echo=FALSE, cache=TRUE}
+df_va_stts_lng %>%
+  filter(!vote_mechanism==" Majority Voting") %>%
+  mutate(question=recode(question,
+                         "Q1"="vaccine",
+                         "Q2"="icu",
+                         "Q3"="protection",
+                         "Q4"="lockdown")) %>% 
+  group_by(short_id, vote_mechanism, question) %>%
+  mutate(score_scld=scales::rescale(score,to=c(0, 1))) %>% 
+  summarize(sd=sd(score_scld), .groups = "drop_last") -> df_temp
+```
+
+```{r sd-median-table, echo=TRUE, warning=FALSE, cache=TRUE} 
+df_temp %>%
+  group_by(question) %>%
+  summarise(median=median(sd)) %>% 
+  arrange(median) %>%
+  mutate(median=round(median,digits=3))->sd_median
+
+stargazer::stargazer(sd_median,
+                     title="The median standard deviation of the voting results, separated by question.",
+                     summary = FALSE, rownames = FALSE,
+                     label = "tab:median_sd",
+                     out="tables/median_sd.tex")
+```
+
+```{r sd-wilcox,echo=FALSE, cache=TRUE}
+df_temp %>%  
+  group_by(question) %>%
+  shapiro_test(sd) -> test_temp
+
+df_temp %>%
+  ungroup() %>%
+  wilcox_test(sd ~ question, paired = TRUE, p.adjust.method = "holm") %>%
+  select(group1,group2,statistic, p.adj,p.adj.signif)->sd_wilcox
+
+stargazer::stargazer(sd_wilcox,
+                     title="A paired Wilcoxon signed-rank test is used to compare the standard deviation of the voting results across questions.",
+                     summary = FALSE, 
+                     rownames = FALSE, notes.align = "l", 
+                     notes = c("The p-values are adjusted using the Holm-Bonferroni correction method.",
+                               "$^{*}$p$<$0.05; $^{**}$p$<$0.01; $^{***}$p$<$0.001; $^{****}$p$<$1e-04."),
+                     label = "tab:wilcox_sd",
+                     out="tables/wilcox_sd.tex")
+```
+
+```{r sd-plt, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap="sd by question"} 
+df_temp %>%
+  group_by(question) %>%
+  summarise(median=median(sd)) %>%
+  pull(median)->median_values
+
+df_temp %>%
+  group_by(question) %>%
+  mutate(median=median(sd)) %>%
+  
+  ggplot(aes(sd, group=question, color=question)) + 
+  geom_density(adjust=1.5, alpha=.2) +
+  geom_vline(aes(xintercept=median, color=question),
+             linetype="dashed")+
+  xlab("standard deviation") +
+  theme_classic() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text=element_text(size=9)) +
+  scale_x_continuous(breaks = median_values, labels = round(median_values, digits = 3))+  
+  scale_colour_manual(values = color_blind_friendly) -> plt_sd
+```
+
+
+
+### Divisiveness
+Divisiveness $D$ can be described as the difference in scores $s$ of voters who prefer one option $O_i$ over another $O_j$ and those who do not. In other words, the $D$ provides an intuition on how divisive a specific option is perceived (details on the metric can be found in \@ref(divisivess)).
+
+$D= 1/(n-1) Σ_{j!=i} | s(O_i,O_j)-s(O_j,O_i)|$
+
+```{r divisiveness-prep, echo=FALSE, cache=TRUE,warning=FALSE}
+
+#Vote_mechanism<-" Combined Approval"
+#Question<-"Q1"
+#option_a<-"o1"
+#option_b<-"o2"
+
+df_va_stts_lng %>% 
+  ungroup() %>%
+  group_by(short_id, vote_mechanism, question) %>%
+  mutate(score=scales::rescale(score,to=c(0, 1))) -> df_va_stts_lng_2
+
+d_method<-function(Vote_mechanism){
+  
+  d_question<-function(Question){
+    
+    divisiveness <- function(option_a, option_b) {
+      
+      oa_id<-df_va_stts_lng_2 %>% #all voters who assigned max_score to option_a
+        ungroup() %>%
+        select(!c(time, vote_name)) %>%
+        filter(., vote_mechanism ==Vote_mechanism) %>%
+        filter(., question ==Question) %>%
+        group_by(short_id)%>%
+        filter(score == max(score)) %>%
+        filter(., option ==option_a) %>% 
+        pull(short_id)
+      
+      score_o1<-df_va_stts_lng_2 %>%
+        ungroup() %>%
+        select(!c(time, vote_name)) %>%
+        filter(., vote_mechanism ==Vote_mechanism) %>%
+        filter(., question ==Question) %>%
+        group_by(short_id)%>%
+        filter(score == max(score)) %>%
+        filter(., option ==option_a) %>% 
+        pull(score)
+      
+      D<-df_va_stts_lng_2 %>%
+        ungroup() %>%
+        select(!c(time, vote_name)) %>%
+        filter(., vote_mechanism ==Vote_mechanism) %>%
+        filter(., question == Question) %>%
+        filter(., short_id %in% oa_id) %>% # only include those voters who assigned max to option_a
+        filter(., option ==option_b)  %>% 
+        add_column(score_o1=score_o1) %>%
+        mutate(diff = abs(score_o1-score)) %>% #how did they rate option_b?
+        summarise(D_o1_o2=mean(diff)) %>%  #changed division
+        pull(D_o1_o2)
+      
+      return(D)
+    }
+    
+    D_o1_o2<-divisiveness("o1", "o2")
+    D_o1_o3<-divisiveness("o1", "o3")
+    D_o1_o4<-divisiveness("o1", "o4")
+    D_o1_o5<-divisiveness("o1", "o5")
+    
+    D_o2_o1<-divisiveness("o2", "o1")
+    D_o2_o3<-divisiveness("o2", "o3")
+    D_o2_o4<-divisiveness("o2", "o4")
+    D_o2_o5<-divisiveness("o2", "o5")
+    
+    D_o3_o1<-divisiveness("o3", "o1")
+    D_o3_o2<-divisiveness("o3", "o2")
+    D_o3_o4<-divisiveness("o3", "o4")
+    D_o3_o5<-divisiveness("o3", "o5")
+    
+    D_o4_o1<-divisiveness("o4", "o1")
+    D_o4_o2<-divisiveness("o4", "o2")
+    D_o4_o3<-divisiveness("o4", "o3")
+    D_o4_o5<-divisiveness("o4", "o5")
+    
+    D_o5_o1<-divisiveness("o5", "o1")
+    D_o5_o2<-divisiveness("o5", "o2")
+    D_o5_o3<-divisiveness("o5", "o3")
+    D_o5_o4<-divisiveness("o5", "o4")
+    
+    D_Q<-c(D_o1_o2,D_o1_o3,D_o1_o4,D_o1_o5,
+           D_o2_o1,D_o2_o3,D_o2_o4,D_o2_o5,
+           D_o3_o1,D_o3_o2,D_o3_o4,D_o3_o5,
+           D_o4_o1,D_o4_o2,D_o4_o3,D_o4_o5,
+           D_o5_o1,D_o5_o2,D_o5_o3,D_o5_o4)
+    
+    return(D_Q)
+  }
+  
+  Q1<-d_question("Q1")
+  Q2<-d_question("Q2")
+  Q3<-d_question("Q3")
+  Q4<-d_question("Q4")
+  
+  D_Q_all<-cbind(Q1, Q2, Q3, Q4)
+
+  return(D_Q_all)
+  
+}
+
+df_divisiveness<-rbind(
+  
+as.data.frame(d_method(" Majority Voting")) %>%
+  pivot_longer(cols = starts_with("Q"),
+               names_to = "question", values_to = "divisiveness") %>%
+  add_column(method = rep("Majority Voting",each=80)),
+
+as.data.frame(d_method(" Combined Approval")) %>%
+  pivot_longer(cols = starts_with("Q"),
+               names_to = "question", values_to = "divisiveness") %>%
+  add_column(method = rep("Combined Approval",each=80)),
+
+as.data.frame(d_method(" Score Voting")) %>%
+  pivot_longer(cols = starts_with("Q"),
+               names_to = "question", values_to = "divisiveness") %>%
+  add_column(method = rep("Score Voting",each=80)),
+
+as.data.frame(d_method(" Modified Borda Count")) %>%
+  pivot_longer(cols = starts_with("Q"),
+               names_to = "question", values_to = "divisiveness") %>%
+  add_column(method = rep("Modified Borda Count",each=80))
+)
+
+```
+
+```{r divisive-median, echo=FALSE, cache=TRUE,warning=FALSE}
+df_divisiveness%>%  
+  filter(!method=="Majority Voting")%>%
+  mutate(question=recode_factor(question,
+                                "Q1"="vaccine",
+                                "Q2"="icu",
+                                "Q3"="protection",
+                                "Q4"="lockdown"), ordered=TRUE) %>%
+  ungroup() %>%
+  group_by(question)%>%
+  summarise(median=round(median(divisiveness),digits=3)) %>% 
+#  mutate(question=character(question))%>%
+  arrange(median) ->median_div
+
+median_div$question<-as.character(median_div$question)
+
+stargazer::stargazer(median_div,
+                     title="The median divisiveness of the voting results, separated by question.",
+                     summary = FALSE,
+                     rownames = FALSE,
+                     label = "tab:median_divisiveness",
+                     out="tables/median_divisiveness.tex")
+```
+
+```{r divisiveness-wilcox, echo=FALSE, warning=FALSE, cache=TRUE} 
+df_divisiveness%>%
+  mutate(question=recode_factor(question,
+                                "Q1"="vaccine",
+                                "Q2"="icu",
+                                "Q3"="protection",
+                                "Q4"="lockdown"), ordered=TRUE) %>%
+  filter(!method=="Majority Voting") %>%
+  wilcox_test(divisiveness ~ question, paired = TRUE, p.adjust.method = "holm") %>%
+  add_significance()%>%
+  select(group1,group2,statistic, p.adj,p.adj.signif)->div_wilcox
+
+colnames(div_wilcox)<-c("question I", "question II", "statistic", "p.adj",	"signif")
+#kable(div_wilcox)%>%
+#  kable_styling(full_width = F)
+```
+
+```{r divisiveness-stargazer, echo=FALSE, results='hide'}
+stargazer::stargazer(div_wilcox,
+                     title="A paired Wilcoxon signed-rank test is used to compare the Divisiveness of the voting results across questions.",
+                     rownames = FALSE, notes.align = "l", 
+                     notes = c("The p-values are adjusted using the Holm-Bonferroni correction method.",
+                               "$^{*}$p$<$0.05; $^{**}$p$<$0.01; $^{***}$p$<$0.001; $^{****}$p$<$1e-04."),
+                     summary = FALSE,
+                     label = "tab:wilcox_divisiveness",
+                     out="tables/wilcox_divisiveness.tex")
+```
+
+```{r divisiveness-plt, echo=FALSE, cache=TRUE}
+df_divisiveness%>%
+  filter(!method=="Majority Voting")%>%
+  group_by(question)%>%
+  summarise(median=median(divisiveness)) %>%
+  pull(median)->median_values
+
+median_values_breaks<-median_values
+median_values_breaks[4]<-median_values_breaks[4]-0.01
+median_values_breaks[3]<-median_values_breaks[3]+0.01
+  
+df_divisiveness%>%
+  filter(!method=="Majority Voting")%>%
+  mutate(question=recode(question,
+                         "Q1"="vaccine",
+                         "Q2"="icu",
+                         "Q3"="protection",
+                         "Q4"="lockdown")) %>% 
+  group_by(question)%>%
+  mutate(median=median(divisiveness)) %>%
+  
+  ggplot(aes(divisiveness, group=question, color=question)) + 
+  geom_density(adjust=1.5, alpha=.2)+xlab("divisiveness") +
+  geom_vline(aes(xintercept=median, color=question),linetype="dashed") +
+  
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text=element_text(size=9)) +
+  scale_x_continuous(breaks = median_values_breaks, labels = round(median_values, digits = 3))+  
+  scale_colour_manual(values = color_blind_friendly) ->plt_divisiveness
+```
+
+
+### plot both
+```{r sd-plztn-dvsnss-plt, echo=FALSE, warning=FALSE, cache=TRUE}
+ggarrange(plt_sd , plt_divisiveness,
+          ncol=2, common.legend = TRUE, legend = "bottom",widths=c(1,1,1)) %>%
+  ggexport(filename = "figures/spread.pdf",width = 8, height = 4)
+```
+
+
+## Max Choice Profiles
+The stacking of several voting methods allows for generating a choice profile per user.
+
+```{r choic-profile-plt, echo=FALSE, warning=FALSE, cache=TRUE}
+df_va_stts_lng%>% 
+  ungroup()%>%
+  select(short_id, question, vote_mechanism, option, score) %>% 
+  mutate(vote_mechanism = recode_factor(vote_mechanism, 
+                                        " Majority Voting" = "mv", 
+                                        " Combined Approval" = "cav", 
+                                        " Score Voting" = "sv",
+                                        " Modified Borda Count" = "mbc"), 
+         ordered=TRUE) %>%
+  group_by(short_id, question, vote_mechanism) %>%
+  mutate(score_scld=scales::rescale(score,to=c(0, 1))) %>%
+  unite(id_q, c("short_id", "question"), remove = TRUE) %>% 
+ # select("id_q", "vote_mechanism","option","score_scld") %>%
+  filter(id_q=="13586_Q1") %>%
+  
+  ggplot(.,aes(x=vote_mechanism, y=score_scld, group=option, color=option)) +
+  geom_point(size=1)+
+  geom_line(aes(group = option))+  
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0.95, ymax = 1.05), colour="yellow", fill="yellow", alpha=0.01) +
+  ylab("scores, rescaled") + xlab("voting method") + 
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        text=element_text(size=12)) +
+    scale_colour_manual(values = color_blind_friendly)-> full
+```
+
+```{r choice-profile-first-plt, warning=FALSE,echo=FALSE, include=TRUE}
+df_va_stts_lng%>% 
+  ungroup()%>%
+  select(short_id, question, vote_mechanism, option, score) %>% 
+  mutate(vote_mechanism = recode_factor(vote_mechanism, 
+                " Majority Voting" = "mv", 
+                " Combined Approval" = "cav", 
+                " Score Voting" = "sv",
+                " Modified Borda Count" = "mbc"), ordered=TRUE) %>% 
+  group_by(short_id, question, vote_mechanism) %>% 
+  filter(score == max(score)) %>%
+  group_by(short_id, question) %>%
+  add_count(option) %>%
+  mutate(option_f=as.numeric(fct_infreq(option))) %>% #option_f was used as y=option_f for plotting
+  filter(!any(n==4)) %>%
+  unite(id_q, c("short_id", "question"), remove = FALSE) %>%
+  filter(id_q=="13586_Q3") ->consistency
+
+consistency %>%
+  ggplot(.,aes(x=vote_mechanism, y=option, group=option,  color=option)) +  
+  geom_point(size=5, shape="1") + 
+  
+  annotate("text", x = 1, y = 5, label = c("0"), alpha=.2) +
+  annotate("text", x = 4, y = 5, label = c("0"), alpha=.2) +
+  annotate("text", x = 4, y = 4, label = c("0"), alpha=.2) +
+  annotate("text", x = 1, y = 3, label = c("0"), alpha=.2) +
+  annotate("text", x = 2, y = 3, label = c("0"), alpha=.2) +
+  annotate("text", x = 3, y = 3, label = c("0"), alpha=.2) +
+  annotate("text", x = 1, y = 2, label = c("0"), alpha=.2) +
+  annotate("text", x = 4, y = 2, label = c("0"), alpha=.2) +
+  annotate("text", x = 1, y = 1, label = c("0"), alpha=.2) +
+  annotate("text", x = 4, y = 1, label = c("0"), alpha=.2) +
+  
+  xlab("voting method") + ylab("option") +
+  
+  theme_classic() + 
+  theme(legend.position = "none",
+        text=element_text(size=12))+
+  scale_colour_manual(values = color_blind_friendly)->first_der
+  
+ggarrange(full, first_der, ncol=2,common.legend = TRUE, legend = "bottom") %>% 
+  ggexport(filename = "figures/first_derivative.pdf", width = 8, height = 4)
+```
+
+```{r choice-profile-count, warning=FALSE,echo=FALSE, include=TRUE}
+df_va_stts_lng%>% 
+  ungroup() %>%
+  select(short_id, question, vote_mechanism, option, score) %>% 
+  mutate(vote_mechanism = recode_factor(vote_mechanism, 
+                                        " Majority Voting" = "mv", 
+                                        " Combined Approval" = "cav", 
+                                        " Score Voting" = "sv",
+                                        " Modified Borda Count" = "mbc"), ordered=TRUE)%>% 
+  mutate(question=recode(question,
+                                "Q1"="vaccine",
+                                "Q2"="icu",
+                                "Q3"="protection",
+                                "Q4"="lockdown")) %>%
+  group_by(short_id, question, vote_mechanism) %>%
+  mutate(score_new=ifelse(score==max(score),1,0))%>%
+  ungroup()%>%
+  select("short_id", "question", "option", "vote_mechanism", "score_new") %>%
+  pivot_wider(names_from = vote_mechanism, values_from = score_new) %>% 
+  unite(`mv, cav, sv, mbc`, c("mv","cav","sv","mbc"), sep=" ") %>% 
+  select(!c("short_id","option")) %>%
+  add_count(`mv, cav, sv, mbc`, name = "n_overall") %>% 
+  
+  group_by(question) %>%
+  add_count(`mv, cav, sv, mbc`, name="n_group") %>%
+  mutate(per =  100 *n_group/sum(n_group)) %>% 
+  filter(n_group>25) %>%
+  arrange(.,question,n_overall) %>%
+  ungroup() %>%
+  mutate(`mv, cav, sv, mbc`=factor(`mv, cav, sv, mbc`, 
+                                  levels=c("0 0 1 1", "1 0 0 1", "1 0 1 1", "1 0 0 0", "0 0 1 0", "1 1 0 1",
+                                           "1 1 0 0", "0 0 0 1", "0 1 0 1", "0 1 1 1", "1 1 1 0", "0 1 1 0",
+                                           "1 1 1 1", "0 1 0 0", "0 0 0 0" ))) -> df_temp
+
+legend_title <- ""
+df_temp%>% 
+  
+  ggplot(., aes(`mv, cav, sv, mbc`, n_group, colour=question)) + 
+  geom_segment( aes(x=`mv, cav, sv, mbc`, xend=`mv, cav, sv, mbc`, 
+                    y=0, yend=n_overall), color="grey") +
+  geom_point(aes(group = question, colour=factor(question)), size=3, alpha=.5)+  
+  xlab("max choice profiles") + ylab("count")+ 
+  annotate("text", x = "1 1 1 1", y = 480, colour = "orange", label = "-----", size=5)+
+  annotate("text", x = "1 1 1 0", y = 480, colour = "orange", label = "-----", size=5)+
+  
+  theme_classic() + 
+  theme(legend.position = "bottom",
+    #    aspect.ratio = 1/1,
+        text=element_text(size=12),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+    scale_colour_manual(legend_title,values = color_blind_friendly) ->plt_temp 
+  plt_temp %>% ggexport(filename = "figures/maxchoiceprofiles.pdf", width = 4, height = 4)
+```
+
+```{r poisson, echo=FALSE, warning=FALSE, cache=TRUE}
+# https://www.dataquest.io/blog/tutorial-poisson-regression-in-r/
+df_temp %>% filter(`mv, cav, sv, mbc` == "0 1 1 0")%>% distinct() %>% drop_na()-> df_temp2
+summary(glm(n_group ~ question, df_temp2, family = poisson(link = "log")))$coefficients->s0110
+
+df_temp %>% filter(`mv, cav, sv, mbc` == "0 1 0 0")%>% distinct() %>% drop_na()-> df_temp2
+summary(glm(n_group ~ question, df_temp2, family = poisson(link = "log")))$coefficients->s0100
+
+df_temp %>% filter(`mv, cav, sv, mbc` == "0 0 0 0")%>% distinct() %>% drop_na()-> df_temp2
+summary(glm(n_group ~ question, df_temp2, family = poisson(link = "log")))$coefficients->s0000
+
+df_temp %>% filter(`mv, cav, sv, mbc` == "1 1 1 1")%>% distinct() %>% drop_na()-> df_temp2
+summary(glm(n_group ~ question, df_temp2, family = poisson(link = "log")))$coefficients->s1111
+
+format(s0110[,4], scientific = TRUE, digits = 3)
+
+cbind(format(s0110[,4], scientific = TRUE, digits = 3),
+      format(s0100[,4], scientific = TRUE, digits = 3),
+      format(s0000[,4], scientific = TRUE, digits = 3),
+      format(s1111[,4], scientific = TRUE, digits = 3))->s
+colnames(s)<-c("0110","0100","0000","1111")
+rownames(s)<-c("(Intercept)","lockdown","infection","vaccine")
+
+
+stargazer::stargazer(s,
+                     title="P-Values of Poisson regression analysis: Comparison of different choice profiles with respect to omitted category 'icu access'. The counts for four choice profiles differ significantly by question.", 
+                     summary = FALSE,
+                     label = "tab:poisson",
+                     out="tables/poisson.tex")
+```
+
+```{r consistent, include=FALSE, message=FALSE, warning=FALSE}
+"calculating the number of consistent voters by voting-method-pair;
+I am not sure whether this is still needed."
+
+nb_vtrs<-as.numeric(df_va_stts_lng %>% ungroup() %>% summarise(n = n_distinct(short_id)) %>% select(n))
+
+nb_vtrs_cst_mv_ca<-as.numeric(df_va_stts_lng%>% 
+  ungroup() %>%
+  select(short_id, question, option, vote_mechanism, score, vote_name) %>%
+  filter(vote_mechanism==" Majority Voting" |vote_mechanism == " Combined Approval") %>%
+    group_by(short_id, question, vote_mechanism) %>% 
+    mutate(max_score = max(score)) %>%
+  group_by(short_id, question, option) %>% 
+  filter(any(vote_mechanism == " Majority Voting" & score == 1)) %>%
+      filter(any(vote_mechanism == " Combined Approval" & score == max_score)) %>%
+    ungroup() %>% summarise(n = n_distinct(short_id)) %>% select(n))
+
+nb_vtrs_cst_ca_sv<-as.numeric(df_va_stts_lng%>% 
+  ungroup() %>%
+  select(short_id, question, option, vote_mechanism, score, vote_name) %>%
+  filter(vote_mechanism==" Score Voting" |vote_mechanism == " Combined Approval") %>%
+    group_by(short_id, question, vote_mechanism) %>% 
+    mutate(max_score = max(score)) %>%
+  group_by(short_id, question, option) %>% 
+  filter(any(vote_mechanism == " Combined Approval" & score == max_score)) %>%
+    filter(any(vote_mechanism == " Score Voting" & score == max_score)) %>%
+    ungroup() %>% summarise(n = n_distinct(short_id)) %>% select(n))
+
+nb_vtrs_cst_sv_mbc<-as.numeric(df_va_stts_lng%>% 
+  ungroup() %>%
+  select(short_id, question, option, vote_mechanism, score, vote_name) %>%
+  filter(vote_mechanism==" Score Voting" |vote_mechanism == " Modified Borda Count") %>%
+    group_by(short_id, question, vote_mechanism) %>% 
+    mutate(max_score = max(score)) %>%
+  group_by(short_id, question, option) %>% 
+  filter(any(vote_mechanism == " Modified Borda Count" & score == max_score)) %>%
+    filter(any(vote_mechanism == " Score Voting" & score == max_score)) %>%
+    ungroup() %>% summarise(n = n_distinct(short_id)) %>% select(n))
+
+(nb_vtrs_cst_mv_ca/nb_vtrs)
+(nb_vtrs_cst_ca_sv/nb_vtrs)
+(nb_vtrs_cst_sv_mbc/nb_vtrs)
+```
+
+## Legitimacy 
+
+```{r lgtmcy-prp-df, echo=FALSE, cache=TRUE}
+df_lng_clr<-df %>% 
+  select(short_id,legitimacy_1_1,legitimacy_1_2,legitimacy_1_3,legitimacy_1_4) %>%
+  rename("majority vote" = "legitimacy_1_1", 
+         "combined approval" = "legitimacy_1_2",
+         "score" = "legitimacy_1_3",
+         "MBC" = "legitimacy_1_4")%>% 
+  filter(!short_id %in% incomplete) %>% #not every participant answered all votes
+  pivot_longer(names_to = "which_method",
+                        cols = 2:5,
+                        values_to = "rating_clr",
+                        values_drop_na = TRUE)  %>%
+  mutate(which_method = recode_factor(which_method, 
+                                      "majority vote" = "mv", 
+                                      "combined approval" = "cav", 
+                                      "score" = "sv",
+                                      "MBC" = "mbc"), ordered=TRUE) %>%
+    mutate(rating_clr=recode(rating_clr,
+                           `stronlgy disagree`=0,
+                           `somewhat disagree`=1,
+                           `neutral`=2,
+                           `somewhat agree`=3,
+                           `strongly agree`=4, .default = NaN)) 
+
+df_lng_cvd<- df %>% 
+  select(short_id,legitimacy_2_1,legitimacy_2_2,legitimacy_2_3,legitimacy_2_4) %>% 
+  rename("majority vote" = "legitimacy_2_1", 
+         "combined approval" = "legitimacy_2_2",
+         "score" = "legitimacy_2_3",
+         "MBC" = "legitimacy_2_4") %>%
+  filter(!short_id %in% incomplete) %>% #not every participant answered all votes
+  pivot_longer(names_to = "which_method",
+                        cols = 2:5,
+                        values_to = "rating_cvd",
+                        values_drop_na = TRUE) %>%
+  mutate(which_method = recode_factor(which_method, 
+                                      "majority vote" = "mv", 
+                                      "combined approval" = "cav", 
+                                      "score" = "sv",
+                                      "MBC" = "mbc"), ordered=TRUE) %>%
+      mutate(rating_cvd=recode(rating_cvd,
+                           `stronlgy disagree`=0,
+                           `somewhat disagree`=1,
+                           `neutral`=2,
+                           `somewhat agree`=3,
+                           `strongly agree`=4, .default = NaN))
+  #write.csv(file="df_legitimacy.csv")
+```
+
+### within context
+```{r lgtmcy-wlcx-cntxt-covid, echo=FALSE, cache=TRUE}
+stat.test_cvd <- compare_means(rating_cvd ~ which_method, df_lng_cvd, paired = TRUE, method = "wilcox.test", p.adjust.method = "holm")
+stat.test_cvd %>% 
+  select(c("group1", "group2", "p.adj","p.signif")) ->wilcox_cvd
+
+stargazer::stargazer(wilcox_cvd,
+                     title="Paired Wilcoxon signed-rank test to compare legitimacy ratings within the covid context.",
+                     notes = c("The p-values are adjusted using the Holm-Bonferroni correction method.",
+                               "$^{*}$p$<$0.05; $^{**}$p$<$0.01; $^{***}$p$<$0.001; $^{****}$p$<$1e-04."),
+                     rownames = FALSE, 
+                     notes.align = "l", 
+                     summary = FALSE,
+                     label = "tab:wilcox_cvd",
+                     out="tables/wilcox_cvd.tex")
+```
+
+```{r lgtmcy-wlcx-cntxt-color, echo=FALSE, cache=TRUE}
+stat.test_clr <- compare_means(rating_clr ~ which_method, df_lng_clr, method = "wilcox.test")
+stat.test_clr %>% 
+  select(c("group1", "group2", "p.adj","p.signif")) ->wilcox_clr
+  
+
+stargazer::stargazer(wilcox_clr,
+                     title="Paired Wilcoxon signed-rank test to compare legitimacy ratings within the color context.",
+                     summary = FALSE,
+                     rownames = FALSE, notes.align = "l", 
+                     notes = c("The p-values are adjusted using the Holm-Bonferroni correction method.",
+                               "$^{*}$p$<$0.05; $^{**}$p$<$0.01; $^{***}$p$<$0.001; $^{****}$p$<$1e-04."),
+                     
+                     label = "tab:wilcox_clr",
+                     out="tables/wilcox_clr.tex")
+```
+
+### plot
+```{r lgtm-cntxt-prep-statistics, echo=FALSE, warning=FALSE, cache=TRUE}
+stat.test<-right_join(df_lng_clr, df_lng_cvd, by=c("short_id", "which_method", "ordered")) %>%
+  group_by(which_method) %>%
+  pivot_longer(!c(short_id, which_method, ordered), names_to = "which_rating", values_to = "rating") %>%
+  wilcox_test(rating ~ which_rating, paired = TRUE, p.adjust.method = "holm") %>%
+  add_significance() 
+stat.test%>%
+  mutate(which_method=as.character(which_method))%>%
+  mutate(group1="color")%>%
+  mutate(group2="covid")%>%
+  select(c("which_method", "group1", "group2", "statistic","p","p.signif"))->tbl_temp
+stargazer::stargazer(tbl_temp,
+                     title="A paired Wilcoxon signed-rank test is used to compare the legitimacy ratings across the color and covid context.",
+                     summary = FALSE, rownames = FALSE, notes.align = "l", 
+                     notes = c("The p-values are adjusted using the Holm-Bonferroni correction method.",
+                               "$^{*}$p$<$0.05; $^{**}$p$<$0.01; $^{***}$p$<$0.001; $^{****}$p$<$1e-04."),
+                     label = "tab:wilcox_across_context",
+                     out="tables/wilcox_across_context.tex")
+
+stat.test <- stat.test %>%add_xy_position(x = "which_method", dodge = 0.8)
+
+right_join(df_lng_clr[,1:3], df_lng_cvd[,1:3], by=c("short_id", "which_method"))%>%
+  pivot_longer(!c(short_id, which_method), names_to = "context", 
+               values_to = "rating")  %>%
+  mutate(context = recode_factor(context, 
+                                 "rating_clr" = "color context", 
+                                 "rating_cvd" = "covid context"), ordered=TRUE)->df_temp
+```
+
+```{r lgtm-cntxt-plt, echo=FALSE, warning=FALSE, cache=TRUE}
+#https://www.datanovia.com/en/blog/how-to-add-p-values-onto-a-grouped-ggplot-using-the-ggpubr-r-package/
+
+df_lng_cvd %>% summarise(mean=mean(rating_cvd)) %>% pull(mean)->mean_cvd
+df_lng_clr %>% summarise(mean=mean(rating_clr)) %>% pull(mean)->mean_clr
+
+ggboxplot(df_temp, 
+                 x = "which_method", y = "rating", 
+                 alpha=.6, width=.6, outlier.shape = NA,
+                 color = "context", ggtheme = theme_gray(),
+                 fill = "context", add="mean_ci") +
+  
+  geom_hline(aes(yintercept = mean_cvd),color="#FFB000", linetype = "dashed")+
+  geom_hline(aes(yintercept = mean_clr),color="#D35FB7", linetype = "dotted")+
+  stat_pvalue_manual(stat.test,  
+                         label = "{p}{p.signif}", 
+                         tip.length =0, hide.ns = TRUE) +
+  geom_jitter(color="grey", size=.3, alpha=.3, width=.4, height=.1) + xlab("")+
+  xlab("voting method") + ylab("legitimacy rating")+
+  
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        text=element_text(size=12)) +
+  scale_color_manual(values = c("#FFB000", "#D35FB7"))+
+  scale_fill_manual(values = c("#FFB000", "#D35FB7")) ->bxp
+```
+
+```{r lgtm-cntxt-plt-brakets, echo=FALSE, warning=FALSE, cache=TRUE}
+bxp+
+  geom_bracket(
+    aes(xmin = group1, xmax = group2, label = p.signif),
+    color="#FFB000",
+    data = stat.test_cvd, 
+    y.position = -1, step.increase = 0.07)+
+  geom_bracket(
+    aes(xmin = group1, xmax = group2, label = p.signif),
+    color="#D35FB7",
+    data = stat.test_clr, 
+    y.position = 0, step.increase = 0.07)->bxp
+```
+
+### across consistency
+```{r lgtm-bxplt-inconsistent-prep, echo=FALSE, warning=FALSE, cache=TRUE}
+df_va_stts_lng%>% 
+  ungroup()%>%
+  filter(!short_id %in% incomplete) %>%
+  select(short_id, question, vote_mechanism, option, score) %>% 
+  mutate(vote_mechanism = recode_factor(vote_mechanism, 
+                                        " Majority Voting" = "mv", 
+                                        " Combined Approval" = "cav", 
+                                        " Score Voting" = "sv",
+                                        " Modified Borda Count" = "mbc"), ordered=TRUE) %>% 
+  group_by(short_id, question, vote_mechanism) %>%
+  
+  mutate(score_new=ifelse(score==max(score),1,0))%>%
+  ungroup()%>%
+  select("short_id", "question", "option", "vote_mechanism", "score_new") %>%
+  pivot_wider(names_from = vote_mechanism, values_from = score_new) %>% 
+  unite(`choice profile`, c("mv","cav","sv","mbc"), sep=" ") %>%
+  select(short_id,`choice profile`)%>%
+  group_by(`choice profile`)%>%
+  count(short_id, name="n_by_id")%>%
+  filter(n_by_id==4|n_by_id==3)%>%
+  filter(`choice profile`=="1 1 1 1")%>% pull(short_id) -> consistent_id
+
+df_lng_cvd %>%
+  filter(!short_id %in% incomplete) %>%
+  mutate(consistent=short_id %in% consistent_id) %>%
+  mutate(consistent=if_else(consistent==TRUE,"consistent","inconsistent"))-> df_temp
+
+wilcox<-df_temp %>%
+  group_by(which_method) %>%
+  wilcox_test(rating_cvd ~ consistent, paired = FALSE, p.adjust.method = "holm")%>%
+  add_significance() 
+
+wilcox <- wilcox %>%add_xy_position(x = "which_method", dodge = 0.8)
+
+wilcox%>% select(which_method, statistic, p, p.signif) %>% mutate(which_method=as.character(which_method))->tbl_temp
+stargazer::stargazer(tbl_temp,
+                     title="Wilcoxon rank sum test to compare legitimacy ratings across consistent and inconsistent voters.",
+                     notes = c("The p-values are adjusted using the Holm-Bonferroni correction method.",
+                               "$^{*}$p$<$0.05; $^{**}$p$<$0.01; $^{***}$p$<$0.001; $^{****}$p$<$1e-04."),
+                     summary = FALSE,
+                     rownames = FALSE, notes.align = "l", 
+                     label = "tab:wilcox_consistent",
+                     out="tables/wilcox_consistent.tex")
+```
+
+```{r lgtm-bxplt-inconsistent, echo=FALSE, warning=FALSE, cache=TRUE}
+df_temp %>% filter(consistent=="consistent") %>% summarise(mean=mean(rating_cvd)) %>% pull(mean)->mean_consistent
+df_temp %>% filter(consistent=="inconsistent") %>% summarise(mean=mean(rating_cvd)) %>% pull(mean)->mean_inconsistent
+
+ggboxplot(df_temp, 
+          x = "which_method", y = "rating_cvd", 
+          alpha=.4, width=.6,outlier.shape = NA,
+          color = "consistent", ggtheme = theme_gray(),
+          fill = "consistent", add="mean_ci")+
+  stat_pvalue_manual(wilcox,  
+                     label = "{p}{p.signif}", 
+                     tip.length =0, hide.ns = TRUE)+
+  
+  geom_hline(aes(yintercept = mean_consistent),color="#005AB5", linetype = "dashed")+
+  geom_hline(aes(yintercept = mean_inconsistent),color="#DC3220", linetype = "dotted")+
+  
+  geom_jitter(color="grey", size=.3, alpha=.2, width=.4, height=.1) + 
+  xlab("voting method") + ylab("legitimacy rating")+
+  
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        text=element_text(size=12)) +
+   scale_color_manual(values = c("#005AB5", "#DC3220"))+
+  scale_fill_manual(values = c("#005AB5", "#DC3220")) ->bxp2
+```
+
+```{r add-brakets-legitimacy-consistent, echo=FALSE, warning=FALSE, cache=TRUE}
+stat.test <- compare_means(rating_cvd ~ which_method, 
+                           data = df_temp %>%filter(consistent=="consistent"), 
+                           method = "wilcox.test")
+stat.test.inconsistent <- compare_means(rating_cvd ~ which_method, 
+                           data = df_temp %>%filter(consistent=="inconsistent"), 
+                           method = "wilcox.test")
+
+bxp2+
+  geom_bracket(
+    aes(xmin = group1, xmax = group2, label = p.signif),
+    color="#005AB5",
+    data = stat.test, 
+    y.position = -1, step.increase = 0.07)+
+  geom_bracket(
+    aes(xmin = group1, xmax = group2, label = p.signif),
+    color= "#DC3220",
+    data = stat.test.inconsistent, 
+    y.position = 0, step.increase = 0.07)->bxp2
+```
+
+```{r combined-plot2, echo=FALSE, warning=FALSE, cache=TRUE}
+ggarrange(bxp, bxp2, ncol=2,common.legend = FALSE, legend = "bottom") %>%
+  ggexport(filename = "figures/legitimacy.pdf",width = 8, height = 4)
+```
+
+### preference profiles
+```{r sd-legitimacy, echo=FALSE}
+df_va_stts_lng %>%
+  filter(!vote_mechanism==" Majority Voting") %>%
+  mutate(question=recode(question,
+                         "Q1"="vaccine",
+                         "Q2"="icu",
+                         "Q3"="protection",
+                         "Q4"="lockdown")) %>% 
+  group_by(short_id, vote_mechanism, question) %>%
+  mutate(score_scld=scales::rescale(score,to=c(0, 1))) %>% 
+  summarize(sd=sd(score_scld), .groups = "drop_last") %>% 
+  mutate(which_method = recode_factor(vote_mechanism, 
+                                      " Majority Voting" = "mv", 
+                                      " Combined Approval" = "cav", 
+                                      " Score Voting" = "sv",
+                                      " Modified Borda Count" = "mbc"), ordered=TRUE) %>%
+  ungroup() %>%
+  select(short_id, which_method,question, sd) %>%
+  left_join(df_lng_clr, by=c("short_id", "which_method")) %>%
+  filter(sd>.3)%>%
+  
+  ggplot(., aes(x=sd, y=rating_clr, color=which_method, fill=which_method )) +
+  geom_point(size=.5, alpha=.5) +
+  
+  geom_smooth(method = loess, formula = y ~ x, se = TRUE, inherit.aes = TRUE,alpha=.3)+
+  
+  ylab("Legitimacy rating") + xlab("Sigma of choice profile")+
+  
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        text=element_text(size=12)) +
+  scale_fill_manual(values = color_blind_friendly) +
+  scale_colour_manual(values = color_blind_friendly) ->plt_temp
+  ggexport(plt_temp, filename = "figures/legitimacy_sd.pdf",width = 8, height = 4)
+```
+
+```{r choice-profiles-legitimacy, echo=FALSE}  
+  df_va_stts_lng %>%
+    group_by(short_id, question, vote_mechanism) %>%
+    mutate(score_scld=scales::rescale(score,to=c(0, 1))) %>% 
+    
+    mutate(question=recode(question,
+                           "Q1"="vaccine",
+                           "Q2"="icu",
+                           "Q3"="protection",
+                           "Q4"="lockdown")) %>%
+    mutate(which_method = recode_factor(vote_mechanism, 
+                                        " Majority Voting" = "mv", 
+                                        " Combined Approval" = "cav", 
+                                        " Score Voting" = "sv",
+                                        " Modified Borda Count" = "mbc")) %>%
+    ungroup() %>%
+    select(!c(time, vote_name, vote_mechanism)) %>%
+    
+    group_by(short_id, question, which_method) %>% 
+    arrange(desc(score_scld), .by_group = TRUE)%>%
+    mutate(position = n():1) %>%
+    
+    ungroup() %>%
+    left_join(df_lng_clr, by=c("short_id", "which_method")) %>%
+    na.omit()%>%
+    
+    filter(!which_method=="mv") %>%
+  
+  ggplot(.,aes(x=position, y=score_scld)) +
+  
+  facet_grid(which_method ~ factor(rating_clr)) +
+ #facet_wrap(which_method~factor(rating_clr),scales = "free_x", ncol = 5, ) +
+
+  
+  geom_point(size=.1, alpha=.1,color="#FFB000")+
+  geom_line(aes(group=interaction(short_id, question)), alpha=.05, color="#FFB000") +
+  geom_smooth(method = loess, formula = y ~ x, se = TRUE, inherit.aes = TRUE,alpha=.3,color="#648FFF", fill="#648FFF")+
+  
+  ylab("rescaled scores") + xlab("options, ordered by rescaled score")+ 
+  
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        text=element_text(size=12))-> plt_temp1
+```
+  
+```{r}
+  df_va_stts_lng %>%
+    group_by(short_id, question, vote_mechanism) %>%
+    mutate(score_scld=scales::rescale(score,to=c(0, 1))) %>% 
+    
+    mutate(question=recode(question,
+                           "Q1"="vaccine",
+                           "Q2"="icu",
+                           "Q3"="protection",
+                           "Q4"="lockdown")) %>%
+    mutate(which_method = recode_factor(vote_mechanism, 
+                                        " Majority Voting" = "mv", 
+                                        " Combined Approval" = "cav", 
+                                        " Score Voting" = "sv",
+                                        " Modified Borda Count" = "mbc")) %>%
+    ungroup() %>%
+    select(!c(time, vote_name, vote_mechanism)) %>%
+    
+    group_by(short_id, question, which_method) %>% 
+    arrange(desc(score_scld), .by_group = TRUE)%>%
+    mutate(position = 1:n()) %>%
+    
+    ungroup() %>%
+    left_join(df_lng_clr, by=c("short_id", "which_method")) %>%
+    na.omit()%>%
+    
+    filter(!which_method=="mv") %>%
+    
+    group_by(short_id, which_method, question) %>%
+    summarize(AUC = auc(x=position,y=score_scld, type = "spline")) %>%
+    summarise(mean_auc=mean(AUC)) %>%
+    
+    group_by(which_method) %>%
+    mutate(mean_auc=scales::rescale(mean_auc,to=c(0, 1))) %>% 
+    
+    left_join(df_lng_clr, by=c("short_id", "which_method")) %>%
+    ungroup() ->df_temp
+  
+  legend_title <- ""
+  mypal <- pal_npg("nrc", alpha = 1)(9)
+  
+  ggplot(df_temp, aes(x=mean_auc , y= rating_clr, 
+                      color=factor(which_method),
+                      fill=factor(which_method), 
+                      group=factor(which_method))) + 
+    geom_point(alpha=.5)+
+    geom_jitter(position = position_jitter(width = 0.1, height = 0.1), alpha=.5)+
+    geom_smooth(method = loess, formula = y ~ x, se = TRUE, inherit.aes = TRUE,alpha=.3)+
+    xlab("area under curve") + ylab("legitimacy rating")+
+    
+    theme_classic() + 
+    theme(legend.position = "bottom",
+        text=element_text(size=12)) +
+    scale_color_manual(legend_title,values=color_blind_friendly)+
+    scale_fill_manual(legend_title,values=color_blind_friendly)->plt_temp
+  
+  
+  ggarrange(plt_temp1, plt_temp, ncol=2,widths = c(2, 1) ) %>%
+    ggexport(filename = "figures/auc.pdf",width = 8, height = 4)
+```
+
+```{r max-choice-legitimacy, echo=FALSE, cache=TRUE}
+####  "count max choice profiles by legitimacy rating"
+  important_profiles<-c("1 1 1 0",  "0 1 1 0", "1 1 1 1", "0 1 0 0", "0 0 0 0" )
+  
+  df_va_stts_lng%>% 
+    ungroup() %>%
+    select(short_id, question, vote_mechanism, option, score) %>% 
+    mutate(vote_mechanism = recode_factor(vote_mechanism, 
+                                          " Majority Voting" = "mv", 
+                                          " Combined Approval" = "cav", 
+                                          " Score Voting" = "sv",
+                                          " Modified Borda Count" = "mbc"), ordered=TRUE)%>% 
+    mutate(question=recode(question,
+                           "Q1"="vaccine",
+                           "Q2"="icu",
+                           "Q3"="protection",
+                           "Q4"="lockdown")) %>%
+    group_by(short_id, question, vote_mechanism) %>%
+    mutate(score_new=ifelse(score==max(score),1,0))%>%
+    ungroup()%>%
+    select("short_id", "question", "option", "vote_mechanism", "score_new") %>%
+    pivot_wider(names_from = vote_mechanism, values_from = score_new) %>% 
+    unite(`mv, cav, sv, mbc`, c("mv","cav","sv","mbc"), sep=" ") %>%
+    group_by(short_id) %>%
+    count(`mv, cav, sv, mbc`) %>% 
+    mutate(`mv, cav, sv, mbc`=factor(`mv, cav, sv, mbc`, 
+                                    levels=c("0 0 1 1", "1 0 0 1", "1 0 1 1", "1 0 0 0", "0 0 1 0", "1 1 0 1",
+                                             "1 1 0 0", "0 0 0 1", "0 1 0 1", "0 1 1 1", "1 1 1 0", "0 1 1 0",
+                                             "1 1 1 1", "0 1 0 0", "0 0 0 0" )))  %>%
+    left_join(df_lng_clr, by="short_id") %>%
+    na.omit() %>% #I have to investigate why there are so many nas...
+    group_by(which_method, rating_clr, `mv, cav, sv, mbc`) %>%
+    tally() %>%
+    group_by(which_method, rating_clr) %>%
+    mutate(sum_n=sum(n)) %>%
+    mutate(per=n/sum_n) %>%
+    filter(`mv, cav, sv, mbc` %in% important_profiles)%>%
+    
+    ggplot(., aes(x=`mv, cav, sv, mbc` , y= per, color=factor(rating_clr))) + 
+    geom_point(aes(shape=factor(rating_clr)))+
+    
+    geom_line(aes(group=factor(rating_clr)), alpha=.5)+
+    facet_wrap(~which_method,scales = "free_x", ncol = 5) +
+    ylab("share within voting method and legitimacy rating") + 
+    xlab("max choice profile")+ 
+    theme_classic() + 
+    theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+          text=element_text(size=12)) +
+    scale_colour_manual(values = color_blind_friendly)-> plt_temp
+  ggexport(plt_temp, filename = "figures/max_choice_legitimacy.pdf",width = 8, height = 4)
+```
+
+### socio demographics
+```{r socio-gender, echo=FALSE, cache=TRUE}
+df %>% 
+        select(short_id,legitimacy_2_1,legitimacy_2_2,legitimacy_2_3,legitimacy_2_4, age, gender, education) %>% 
+        rename("majority vote" = "legitimacy_2_1", 
+               "combined approval" = "legitimacy_2_2",
+               "score" = "legitimacy_2_3",
+               "MBC" = "legitimacy_2_4") %>%
+        filter(!short_id %in% incomplete) %>% 
+        pivot_longer(names_to = "which_method",
+                     cols = 2:5,
+                     values_to = "rating_cvd",
+                     values_drop_na = TRUE) %>%
+        mutate(which_method = recode_factor(which_method, 
+                                            "majority vote" = "mv", 
+                                            "combined approval" = "cav", 
+                                            "score" = "sv",
+                                            "MBC" = "mbc"), ordered=TRUE) %>% 
+        mutate(rating_cvd=recode(rating_cvd,
+                                 `stronlgy disagree`=0,
+                                 `somewhat disagree`=1,
+                                 `neutral`=2,
+                                 `somewhat agree`=3,
+                                 `strongly agree`=4, .default = NaN))-> df_temp
+  df_temp %>%
+    filter(gender!="other") %>%
+    group_by(which_method) %>%  
+    wilcox_test(rating_cvd ~ gender) %>%
+    mutate(which_method=as.character(which_method))%>%
+    select(!.y.)-> tbl_temp
+
+stargazer::stargazer(tbl_temp,
+                     title="Wilcoxon signed-rank test to compare legitimacy ratings across gender.", 
+                     summary = FALSE,
+                     rownames = FALSE,
+                     label = "tab:leg_gender",
+                     out="tables/leg_gender.tex")
+```
+
+```{r socio-education, echo=FALSE, cache=TRUE}
+######
+df_temp %>% 
+  mutate(education = recode_factor(education, 
+                                   "High School" = "high school",
+                                   "Abitur" = "Abitur",
+                                   "College" = "college", 
+                                   "Bachelor" = "bachelor", 
+                                   "Master" = "master", 
+                                   "Graduate School/Ph.D." = "PhD"), ordered=TRUE) %>%
+  group_by(which_method) %>%  
+  wilcox_test(rating_cvd ~ education) %>%
+  mutate(which_method=as.character(which_method))%>%
+  select(!.y.)-> tbl_temp
+
+stargazer::stargazer(tbl_temp,
+                     title="Wilcoxon signed-rank test to compare legitimacy ratings across levels of education.", 
+                     font.size = "footnotesize",
+                     summary = FALSE,
+                     rownames = FALSE,
+                     notes = "The Abitur is the German version of a high school diploma after 12 or 13 years of schooling.",
+                     label = "tab:leg_education",
+                     out="tables/leg_education.tex")
+```
+
+```{r socio-age, echo=FALSE, cache=TRUE}
+legend_title <- "input method"
+
+df_temp %>%
+  mutate(age = ifelse(age > 31, 32, age)) %>%
+  
+  ggplot(aes(x=as.numeric(age), 
+             y=as.factor(rating_cvd), 
+             group=factor(which_method),
+             fill=factor(which_method),
+             color=factor(which_method))) +
+  geom_jitter(position = position_jitter(width = 0.1, height = 0.1), alpha=.5)+
+  geom_smooth(method = loess, formula = y ~ x, se = TRUE, inherit.aes = TRUE,alpha=.3)+
+  xlab("age")+ylab("legitimacy rating")+ 
+  ylim("0","1","2","3","4")+
+  geom_vline(xintercept = 29, linetype="dashed", 
+               color = "red", size=1)+
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        text=element_text(size=12)) +
+  scale_color_manual(legend_title,values=color_blind_friendly)+
+  scale_fill_manual(legend_title,values=color_blind_friendly)-> plt_temp1
+
+plt_temp1<-ggMarginal(plt_temp1, type="histogram")
+plt_temp1%>%
+  ggexport(filename = "figures/leg_age.pdf",width = 4, height = 4)
+
+
+df_temp %>%
+  mutate(age=as.numeric(age))%>%
+  filter(age>27)  %>% 
+  nest(data = -which_method) %>%
+  mutate(
+    fit = map(data, ~ lm(rating_cvd ~ age, data = .x)),
+    tidied = map(fit, tidy)
+  ) %>% 
+  unnest(tidied)
+```
+
+
+### by cluster
+```{r legitimacy-by-cluster, echo=FALSE, warning=FALSE, cache=TRUE}
+df_cluster <- read_csv("../gitbook/clustering_result2.csv")
+df_legitimacy <- df_lng_cvd #read_csv("df_legitimacy.csv")
+df_legitimacy$short_id<-as.double(df_legitimacy$short_id)
+
+df_cluster %>% 
+  left_join(., df_legitimacy, by=c("short_id")) %>%
+  drop_na()-> df
+
+"plot boxplots of legitimacy ratings by voting method and cluster; separate panels for questions"
+
+df %>% 
+  mutate(question=recode_factor(question,
+                                "Q1"="vaccine",
+                                "Q2"="icu",
+                                "Q3"="protection",
+                                "Q4"="lockdown"), ordered=TRUE) %>%
+  select(short_id, question, which_method, cluster_methods, cluster, rating_cvd ) %>%
+  drop_na(which_method)%>%
+  filter(cluster_methods=="GMM") %>%
+  mutate(cluster=factor(cluster))%>% 
+  
+  ggboxplot(., 
+            x = "which_method", y = "rating_cvd", 
+            alpha=.4, width=.6,
+            color = "cluster", ggtheme = theme_gray(),
+            fill = "cluster", add="mean_ci")+
+  geom_jitter(color="grey", size=.3, alpha=.3, width=.4, height=.1) + 
+  xlab("") + ylab("Legitimacy Rating") +
+  facet_wrap(~question)+
+  theme_classic() +
+  theme(legend.position = "bottom",
+        text=element_text(size=12)) +
+  scale_colour_manual(values = color_blind_friendly)+
+  scale_fill_manual(values = color_blind_friendly) ->plot_temp
+  
+  ggexport(plot_temp, filename = "figures/legitimacy_kruskal.pdf",width = 8, height = 4)
+
+
+"perform a krukal by groups; to answer whether legitimacy ratings significantly differ by group.
+For convenience, I manually iterated through the alternatives. 
+Neither by ttest nor by anova I find significant differencesin legitimacy ratings."
+
+
+cluster_kruskal_function<-function(df_in, question_in, method_in){
+  df_in %>% 
+    select(short_id, question, which_method, cluster_methods, cluster, rating_cvd ) %>%
+    drop_na(which_method) %>%
+    filter(cluster_methods=="GMM") %>%
+    filter(question==question_in) %>%
+    filter(which_method==method_in) %>%
+    mutate(cluster=factor(cluster)) %>%
+    kruskal_test(rating_cvd ~ cluster) %>%
+    pull(p)
+}
+
+mylist=list()
+for (i in unique(df$question)) {
+  for (j in unique(df$which_method)) {
+    p<-cluster_kruskal_function(df_in=df, question_in=i, method_in=j)
+    mylist <- append(mylist, c(i,j,p))
+  }
+}
+
+df_temp<-as.data.frame(matrix(unlist(mylist), ncol=4)[c(3,6,9,12),])
+colnames(df_temp)<-unique(df$question)
+rownames(df_temp)<-unique(df$which_method)
+
+colnames(df_temp)<-c("vaccine","icu","protection","lockdown")
+
+stargazer::stargazer(df_temp,
+                     title="Kruskal-Wallis Test p-values of legitimacy ratings by voting method, question, and cluster: evaluating the significance of differences among groups.",
+                     summary = FALSE,
+                     label = "tab:kruskal_cluster",
+                     out="tables/kruskal_cluster.tex")
+```
+
+## Condorcet Efficiency
+
+```{r condorcet2, echo=FALSE, warning=FALSE, cache=TRUE}
+df_va_stts_lng%>%
+  filter(vote_mechanism==" Combined Approval") %>%
+  mutate(score=recode(score,`-1`=1,`0`=2,`1`=3))->df_temp1
+
+df_va_stts_lng%>%
+  filter(!vote_mechanism==" Combined Approval")-> df_temp2
+df_temp<-rbind(df_temp1,df_temp2)
+
+cndrct_eff <- function(df_long,q,method) {
+  
+  df_long %>%
+  filter(vote_mechanism==method) %>% #select VM
+  filter(question==q) %>% #select question
+  ungroup()%>%  
+  select(short_id,option,score)%>%
+  pivot_wider(names_from = option, values_from = score, id_cols = short_id) -> votes
+  
+  votes2<-votes[,1] #copy to a placeholder df
+
+  votes%>%
+    select(!short_id)%>%
+     summarise_all(funs(sum))%>%
+    pivot_longer(cols = starts_with("o"), names_to = "option", values_to = "score")%>%
+    pull(score)->vec_all
+
+  matrix_1_all<-matrix(rep(vec_all,length(vec_all)),ncol = length(vec_all), byrow = TRUE)
+  matrix_2_all<-t(matrix_1_all)
+  mat_all <- ifelse(matrix_1_all-matrix_2_all<=0,0,1) #rescale 0 and 1
+    
+  for (i in 1:dim(votes)[1]) {
+    votes[i, , drop = TRUE] %>% #get single user
+    pivot_longer(!short_id, names_to = "option", values_to = "score")%>%pull(score)->vec
+  
+    matrix_1<-matrix(rep(vec,length(vec)),ncol = length(vec), byrow = TRUE)
+    matrix_2<-t(matrix_1)
+    mat <- ifelse(matrix_1-matrix_2<=0,0,1) #rescale 0 and 1
+  
+  votes2[i,2]<-table(mat==mat_all)[1]
+  votes2[i,3]<-table(mat==mat_all)[2]
+  votes2[i,4]<-q
+  votes2[i,5]<-method
+}
+  return(votes2)
+}
+
+### apply function
+qs<-unique(df_temp$question)
+methods<-unique(df_temp$vote_mechanism)
+
+datalist_i = list()
+datalist_j = list()
+
+for (j in methods) {
+  for (i in qs) {
+    datalist_i[[i]]<-cndrct_eff(df_temp, i,j)
+  }
+  datalist_j[[j]]= do.call(rbind, datalist_i)
+}
+
+df_temp = do.call(rbind, datalist_j)
+colnames(df_temp)<-c("short_id","true","false","question","method")
+```
+
+```{r wilcox-test-condorcet, echo=FALSE, cache=TRUE}
+stargazer::stargazer(df_temp %>%
+                       group_by(method) %>%
+                       summarise(median=median(true)),
+                     title="The median Condorcet Efficiency of the voting results, separated by input format.", 
+                     rownames = FALSE,
+                     summary = FALSE,
+                     label = "tab:condorcet_median",
+                     out="tables/condorcet_median.tex")
+
+df_temp %>%
+  ungroup() %>%
+  wilcox_test(true ~ method, paired = TRUE) %>%
+  select(group1,group2,p.adj,p.adj.signif)->tbl_temp
+
+stargazer::stargazer(tbl_temp,
+                     title="Results of a Wilcox test, comparing Condorcet Efficiencies across input methods.", 
+                     summary = FALSE,
+                     rownames = FALSE,
+                     notes.align = "l", 
+                     notes = c("The p-values are adjusted using the Holm-Bonferroni correction method.",
+                               "$^{*}$p$<$0.05; $^{**}$p$<$0.01; $^{***}$p$<$0.001; $^{****}$p$<$1e-04."),
+                     label = "tab:condorcet_wilcox",
+                     out="tables/condorcet_wilcox.tex")
+
+```
+
+## Defining and Testing a Graphical Causal Model 
+```{r DAG, echo=FALSE, warning=FALSE, cache=TRUE, message=FALSE, fig.cap="A Graphical Causal Model."}
+#https://currentprotocols.onlinelibrary.wiley.com/doi/full/10.1002/cpz1.45
+myDAG <- dagitty( 'dag {
+input_format -> winner
+question -> winner
+polarization -> question
+
+question -> choice_profile
+choice_profile -> legitimacy_rating
+
+choice_profile -> consistency
+
+context -> legitimacy_rating
+consistency -> legitimacy_rating
+
+number_peaks -> legitimacy
+
+context -> choice_profile
+polarization -> consistency
+context -> legitimacy_rating
+consistency -> legitimacy_rating
+consistency -> choice_profile
+number_peaks -> choice_profile
+number_peaks -> legitimacy_rating
+polarization -> divisiveness
+polarization -> context
+}' )
+
+
+plot( myDAG )
+```

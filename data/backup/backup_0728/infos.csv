@@ -1,0 +1,46 @@
+text_raw, option_text, option_nr
+Among COVID-19 patients, which criteria should grant access to an intensive care unit?, no denial of vaccination, 0
+Among COVID-19 patients, which criteria should grant access to an intensive care unit?, no violation of lock down rules, 1
+Among COVID-19 patients, which criteria should grant access to an intensive care unit?, no health self-damage, e.g. smoking, drugs, alcohol, 2
+Among COVID-19 patients, which criteria should grant access to an intensive care unit?, being the oldest, 3
+Among COVID-19 patients, which criteria should grant access to an intensive care unit?, being the youngest, 4
+Among COVID-19 patients, which criterion should grant one access to an intensive care unit?, Being the youngest, 0
+Among COVID-19 patients, which criterion should grant one access to an intensive care unit?, Being the oldest, 1
+Among COVID-19 patients, which criterion should grant one access to an intensive care unit?, No denial of vaccination, 2
+Among COVID-19 patients, which criterion should grant one access to an intensive care unit?, No violation of lockdown rules, 3
+Among COVID-19 patients, which criterion should grant one access to an intensive care unit?, No health self-damage, e.g. smoking, drugs, alcohol, 4
+How should the government regulate COVID-19 vaccines?, vaccination should be mandatory, 0
+How should the government regulate COVID-19 vaccines?, vaccination should be the basis for discrimination e.g. access to facilities and services, 1
+How should the government regulate COVID-19 vaccines?, alternatives to vaccination should be promoted and financially supported, 2
+How should the government regulate COVID-19 vaccines?, vaccination-effectiveness and long-term effects should be analyzed first in more detail, 3
+How should the government regulate COVID-19 vaccines?, choice of which vaccine to receive should be given, 4
+The government's strategy to fight the COVID-19 pandemic should also mitigate, mental distress, 0
+The government's strategy to fight the COVID-19 pandemic should also mitigate, government control and suppression of freedom, 1
+The government's strategy to fight the COVID-19 pandemic should also mitigate, social segregation and increased inequality, 2
+The government's strategy to fight the COVID-19 pandemic should also mitigate, economic recession and unemployment, 3
+The government's strategy to fight the COVID-19 pandemic should also mitigate, reduced physical health condition, 4
+What are you most concerned about the COVID-19 vaccines?, How to be vaccinated as soon as possible, 0
+What are you most concerned about the COVID-19 vaccines?, Their long-term side-effects, 1
+What are you most concerned about the COVID-19 vaccines?, Their overall effectiveness, 2
+What are you most concerned about the COVID-19 vaccines?, Their misuse by governments & companies, 3
+What are you most concerned about the COVID-19 vaccines?, Discrimination, e.g. travels, access to facilities & services, 4
+Which is the most effective protection measure against a COVID-19 infection? , Wearing a mask, 0
+Which is the most effective protection measure against a COVID-19 infection? , Physical distancing, 1
+Which is the most effective protection measure against a COVID-19 infection? , Vaccination, 2
+Which is the most effective protection measure against a COVID-19 infection? , Regular hand washing, 3
+Which is the most effective protection measure against a COVID-19 infection? , Maintaining a healthy lifestyle, 4
+Which is the most significant problem that the lockdown has caused?
+, Economic recession & unemployment, 0
+Which is the most significant problem that the lockdown has caused?
+, Government control & suppression of freedom, 1
+Which is the most significant problem that the lockdown has caused?
+, Social segregation & increased inequality, 2
+Which is the most significant problem that the lockdown has caused?
+, Mental distress, 3
+Which is the most significant problem that the lockdown has caused?
+, Reduced physical health condition, 4
+Which protection measure(s) against a COVID-19 infection is the most effective one for governments to promote?, regular hand washing, 0
+Which protection measure(s) against a COVID-19 infection is the most effective one for governments to promote?, wearing a mask, 1
+Which protection measure(s) against a COVID-19 infection is the most effective one for governments to promote?, maintaining a healthy lifestyle, 2
+Which protection measure(s) against a COVID-19 infection is the most effective one for governments to promote?, vaccination, 3
+Which protection measure(s) against a COVID-19 infection is the most effective one for governments to promote?, physical/social distancing, 4
