@@ -3,7 +3,7 @@
 This repository contains the code and data for the research project "Preferential voting prevails as most legitimate in a polarized decision-making context". 
 The project's _preprint_ can be found here: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4372245
 
-This repository is licensed under Creative Commons v1.0.
+This repository is licensed under the MIT license.
 
 **Citation**
 
