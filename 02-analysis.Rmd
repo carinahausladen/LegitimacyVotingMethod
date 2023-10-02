@@ -1,6 +1,7 @@
 # Setup
 ```{r setup_vote, include=FALSE}
 rm(list=ls())
+getwd()
 
 library(bookdown)
 library(dplyr)
@@ -40,18 +41,19 @@ library(scales)
 color_blind_friendly <- c("#FFB000", "#D35FB7", "#005AB5", "#DC3220", "#009E73")
 color_blind_friendly2 <- c("#648FFF", "#DC267F","#785EF0","#FE6100", "#FFB000")
 
-df_va_analytics<-rbind(read.csv("../experiment/data/0723/analytics.csv"),
-                       read.csv("../experiment/data/0726/analytics.csv"),
-                       read.csv("../experiment/data/0728/analytics.csv"),
-                       read.csv("../experiment/data/0729/analytics.csv"))
-df_va_stts<-rbind(read.csv("../experiment/data/0723/states.csv"),
-                    read.csv("../experiment/data/0726/states.csv"),
-                    read.csv("../experiment/data/0728/states.csv"),
-                    read.csv("../experiment/data/0729/states.csv"))
+df_va_analytics<-rbind(read.csv("data/0723/analytics.csv"),
+                       read.csv("data/0726/analytics.csv"),
+                       read.csv("data/0728/analytics.csv"),
+                       read.csv("data/0729/analytics.csv"))
+df_va_stts<-rbind(read.csv("data/0723/states.csv"),
+                    read.csv("data/0726/states.csv"),
+                    read.csv("data/0728/states.csv"),
+                    read.csv("data/0729/states.csv"))
 
 
-incomplete<-c("12518", "71672", "92828", "84527", "71795", "43263") ## remove participants with incomplete data
+incomplete<-c("12518", "71672", "92828", "84527", "71795", "43263") # remove participants with incomplete voting data
 df_va_stts<-df_va_stts[!df_va_stts$short_id %in% incomplete,]
+length(unique(df_va_stts$short_id)) # should be 125
 ```
 
 ```{r add_Q, include=FALSE}
@@ -64,7 +66,7 @@ df_va_analytics$vote_name<-str_replace(df_va_analytics$vote_name, " Vote ", "V")
 ```
 
 ```{r read_qltrcs, include=FALSE, warning=FALSE, cache=TRUE}
-df <- read_csv("../experiment/data/qualtrics_text.csv")
+df <- read_csv("data/qualtrics_text.csv")
 df <- df[-c(1,2),]
 df<-df%>%
   filter(Finished=="True") %>%
@@ -88,7 +90,7 @@ share_bachelor<-round((as.numeric(df_education[df_education$Var1=="Bachelor", 2]
 
 ## Winners
 ```{r winner-table, echo=FALSE, warning=FALSE, cache=TRUE}
-df_va_stts %>% #we have several rows to capture states by second!
+df_va_stts %>% #we have several rows to capture states by second
   group_by(short_id, vote_name) %>% 
   slice_max(order_by = time, n = 2) %>% 
   filter(row_number(vote_mechanism) == 1) -> df_va_stts 
@@ -181,7 +183,7 @@ winner_temp<-as.data.frame(winner) %>%
 
 ```{r write_table, echo=FALSE, results='hide'}
 stargazer::stargazer(winner,
-                     title="Winning options of COVID-19-related questions using different voting methods. This table presents the results of four COVID-related questions (columns) that were voted upon using four different voting methods (rows): majority voting ($mv=\{0,1\}$), combined approval voting ($cav=\{-1, 0, 1\}$), score voting ($sv=\{0,1,2,3,4\}$), and modified Borda count ($mbc=\{0,1,2,3,4\}$). The winning option out of $\{o_1,...,o_5\}$ was determined by the highest sum of scores.", 
+                     title="Winning options of COVID-19-related questions using different voting methods. This table presents the results of four COVID-related questions (columns) that were voted upon using four different voting methods (rows): majority voting ($mv={0,1}$), combined approval voting ($cav={-1, 0, 1}$), score voting ($sv={0,1,2,3,4}$), and modified Borda count ($mbc={0,1,2,3,4}$). The winning option out of ${o_1,...,o_5}$ was determined by the highest sum of scores.", 
                      summary = FALSE,
                      label = "tab:winner",
                      out="tables/winner_all.tex")
@@ -246,19 +248,18 @@ df_temp %>%
 
 df_temp %>%
   group_by(question) %>%
-  mutate(median=median(sd)) %>%
-  
-  ggplot(aes(sd, group=question, color=question)) + 
-  geom_density(adjust=1.5, alpha=.2) +
-  geom_vline(aes(xintercept=median, color=question),
-             linetype="dashed")+
+  mutate(median = median(sd)) %>%
+  ggplot(aes(sd, group = question, color = question, linetype = question)) + 
+  geom_density(adjust = 1.5, alpha = .2) +
+  geom_vline(aes(xintercept = median, color = question, linetype = question)) +
   xlab("standard deviation") +
   theme_classic() +
   theme(legend.position = "bottom",
-        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-        text=element_text(size=9)) +
-  scale_x_continuous(breaks = median_values, labels = round(median_values, digits = 3))+  
-  scale_colour_manual(values = color_blind_friendly) -> plt_sd
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        text = element_text(size = 9)) +
+  scale_x_continuous(breaks = median_values, labels = round(median_values, digits = 3)) +  
+  scale_colour_manual(values = color_blind_friendly) +
+  scale_linetype_manual(values = c("dashed", "dotdash", "solid", "dotted"))  -> plt_sd
 ```
 
 
@@ -464,16 +465,17 @@ df_divisiveness%>%
   group_by(question)%>%
   mutate(median=median(divisiveness)) %>%
   
-  ggplot(aes(divisiveness, group=question, color=question)) + 
+  ggplot(aes(divisiveness, group=question, color=question, linetype = question)) + 
   geom_density(adjust=1.5, alpha=.2)+xlab("divisiveness") +
-  geom_vline(aes(xintercept=median, color=question),linetype="dashed") +
+  geom_vline(aes(xintercept=median, color=question,linetype = question)) +
   
   theme_classic() + 
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
         text=element_text(size=9)) +
   scale_x_continuous(breaks = median_values_breaks, labels = round(median_values, digits = 3))+  
-  scale_colour_manual(values = color_blind_friendly) ->plt_divisiveness
+  scale_colour_manual(values = color_blind_friendly)+
+  scale_linetype_manual(values = c("dashed", "dotdash", "solid", "dotted"))  ->plt_divisiveness
 ```
 
 
@@ -599,7 +601,7 @@ df_temp%>%
   ggplot(., aes(`mv, cav, sv, mbc`, n_group, colour=question)) + 
   geom_segment( aes(x=`mv, cav, sv, mbc`, xend=`mv, cav, sv, mbc`, 
                     y=0, yend=n_overall), color="grey") +
-  geom_point(aes(group = question, colour=factor(question)), size=3, alpha=.5)+  
+  geom_point(aes(group = question, colour=factor(question), shape=question), size=3, alpha=.5)+  
   xlab("max choice profiles") + ylab("count")+ 
   annotate("text", x = "1 1 1 1", y = 480, colour = "orange", label = "-----", size=5)+
   annotate("text", x = "1 1 1 0", y = 480, colour = "orange", label = "-----", size=5)+
@@ -735,8 +737,8 @@ df_lng_cvd<- df %>%
                            `somewhat disagree`=1,
                            `neutral`=2,
                            `somewhat agree`=3,
-                           `strongly agree`=4, .default = NaN))
-  #write.csv(file="df_legitimacy.csv")
+                           `strongly agree`=4, .default = NaN)) %>%
+  write.csv(file="df_legitimacy.csv")
 ```
 
 ### within context
