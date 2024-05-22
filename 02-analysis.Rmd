@@ -38,7 +38,7 @@ library(ggsci)
 library(scales)
 
 #https://davidmathlogic.com/colorblind/#%23005AB5-%23DC3220
-color_blind_friendly <- c("#FFB000", "#D35FB7", "#005AB5", "#DC3220", "#009E73")
+color_blind_friendly <- c("#FFB000", "#D35FB7", "#005AB5", "#DC3220", "#009E73","#785EF0")
 color_blind_friendly2 <- c("#648FFF", "#DC267F","#785EF0","#FE6100", "#FFB000")
 
 df_va_analytics<-rbind(read.csv("data/0723/analytics.csv"),
@@ -72,7 +72,6 @@ df<-df%>%
   filter(Finished=="True") %>%
   filter(!short_id %in% unique(df%>%  #8 people took part twice due to an error in recruiting
                          group_by(short_id)%>%
-                         filter(n()>1)%>% 
                          pull(short_id)))%>%
   filter(!short_id %in% incomplete) 
 #%>%   write.csv(.,file = "df_qualtrics.csv")
@@ -497,24 +496,31 @@ df_va_stts_lng%>%
   mutate(vote_mechanism = recode_factor(vote_mechanism, 
                                         " Majority Voting" = "mv", 
                                         " Combined Approval" = "cav", 
-                                        " Score Voting" = "sv",
+                                        " Score Voting" = "rv",
                                         " Modified Borda Count" = "mbc"), 
          ordered=TRUE) %>%
   group_by(short_id, question, vote_mechanism) %>%
   mutate(score_scld=scales::rescale(score,to=c(0, 1))) %>%
   unite(id_q, c("short_id", "question"), remove = TRUE) %>% 
  # select("id_q", "vote_mechanism","option","score_scld") %>%
-  filter(id_q=="13586_Q1") %>%
+  filter(id_q=="13586_Q3") %>%
+  
+  mutate(score_scld = ifelse(option == 'o2', score_scld - 0.01,
+                        ifelse(option == 'o3', score_scld - 0.015, 
+                               ifelse(option == 'o1', score_scld - 0.02, 
+                                      ifelse(option == 'o5', score_scld - 0.025, 
+                      score_scld))))) %>%
   
   ggplot(.,aes(x=vote_mechanism, y=score_scld, group=option, color=option)) +
   geom_point(size=1)+
-  geom_line(aes(group = option))+  
+  geom_line(aes(group = option), alpha=0.8)+  
   geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0.95, ymax = 1.05), colour="yellow", fill="yellow", alpha=0.01) +
   ylab("scores, rescaled") + xlab("voting method") + 
   theme_classic() + 
   theme(legend.position = "bottom",
         text=element_text(size=12)) +
     scale_colour_manual(values = color_blind_friendly)-> full
+full
 ```
 
 ```{r choice-profile-first-plt, warning=FALSE,echo=FALSE, include=TRUE}
@@ -524,7 +530,7 @@ df_va_stts_lng%>%
   mutate(vote_mechanism = recode_factor(vote_mechanism, 
                 " Majority Voting" = "mv", 
                 " Combined Approval" = "cav", 
-                " Score Voting" = "sv",
+                " Score Voting" = "rv",
                 " Modified Borda Count" = "mbc"), ordered=TRUE) %>% 
   group_by(short_id, question, vote_mechanism) %>% 
   filter(score == max(score)) %>%
@@ -598,20 +604,23 @@ df_va_stts_lng%>%
 legend_title <- ""
 df_temp%>% 
   
-  ggplot(., aes(`mv, cav, sv, mbc`, n_group, colour=question)) + 
-  geom_segment( aes(x=`mv, cav, sv, mbc`, xend=`mv, cav, sv, mbc`, 
+  ggplot(., aes(`mv, cav, sv, mbc`, n_group)) + 
+  geom_segment(aes(x=`mv, cav, sv, mbc`, xend=`mv, cav, sv, mbc`, 
                     y=0, yend=n_overall), color="grey") +
-  geom_point(aes(group = question, colour=factor(question), shape=question), size=3, alpha=.5)+  
+  geom_point(aes(group = question, color=question, shape=question), size=3, alpha=.8)+  
   xlab("max choice profiles") + ylab("count")+ 
   annotate("text", x = "1 1 1 1", y = 480, colour = "orange", label = "-----", size=5)+
   annotate("text", x = "1 1 1 0", y = 480, colour = "orange", label = "-----", size=5)+
   
   theme_classic() + 
+  labs(color = NULL, shape = NULL)+
   theme(legend.position = "bottom",
-    #    aspect.ratio = 1/1,
         text=element_text(size=12),
-        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
-    scale_colour_manual(legend_title,values = color_blind_friendly) ->plt_temp 
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) ->plt_temp
+ # scale_color_manual(legend_title,values = color_blind_friendly) 
+
+#  guides(fill = guide_legend(override.aes = list(color = color_blind_friendly,shape = color_blind_friendly)))
+ #   scale_colour_manual(legend_title,values = color_blind_friendly) ->plt_temp 
   plt_temp %>% ggexport(filename = "figures/maxchoiceprofiles.pdf", width = 4, height = 4)
 ```
 
